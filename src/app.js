@@ -9,6 +9,18 @@ const logger = require('./utils/logger');
 const { initWhatsAppClient } = require('./whatsapp/client');
 const memoryIngestionManager = require('./memory/memoryIngestionManager');
 
+const fs = require('fs');
+const path = require('path');
+
+// ==========================================
+// 📁 AUTO-GENERACIÓN DE DIRECTORIOS BASE
+// ==========================================
+const dataDir = path.join(process.cwd(), 'data');
+if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+    console.log('\x1b[33m📁 Carpeta "data" creada automáticamente para prevenir errores de escritura.\x1b[0m');
+}
+
 /**
  * Bootstraps the application, initializing required asynchronous dependencies and starting the WhatsApp client.
  * @returns {Promise<void>} Resolves when the application has successfully started.
