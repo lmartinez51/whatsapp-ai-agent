@@ -1,0 +1,48 @@
+# ========================
+# DEPENDENCIAS
+# ========================
+node_modules/
+
+# ========================
+# SECRETOS Y CREDENCIALES
+# ========================
+.env
+
+# ========================
+# SESIONES DE WHATSAPP (CRÍTICO)
+# ========================
+.wwebjs_auth/
+.wwebjs_cache/
+
+# ========================
+# PRIVACIDAD Y DATOS LOCALES
+# ========================
+# Ignorar historiales de chat y memoria local del bot
+raw_chats/
+chats/
+memory/*.json
+
+# Bases de datos locales (si llegas a usar SQLite para guardar contactos)
+*.db
+*.sqlite
+
+# ========================
+# MULTIMEDIA TEMPORAL
+# ========================
+# Si el bot descarga notas de voz o imágenes antes de procesarlas
+temp/
+tmp/
+downloads/
+
+# ========================
+# DATOS Y MEMORIA DEL BOT
+# ========================
+data/
+
+# ========================
+# LOGS Y SISTEMA
+# ========================
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
