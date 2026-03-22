@@ -21,7 +21,7 @@ class ResponseEngine {
     try {
       return await getCompletion(messages, {
         max_completion_tokens: 80, 
-        temperature: 0.75 // Ajustado al valor original
+        temperature: 0.75 
       });
     } catch (error) {
       logger.error({ err: error, contact: contactProfile?.name }, 'OpenAI failed to generate a reply');
@@ -35,11 +35,12 @@ class ResponseEngine {
    * @param {Array<Object>} recentContext - The recent conversation history in OpenAI format.
    * @param {string} systemContent - The compiled system prompt defining persona and rules.
    * @param {Object} contactProfile - The contact's profile used for logging and error tracking.
+   * @param {Object|null} mediaObject - The visual data (base64) from images or stickers.
    * @returns {Promise<string|null>} The text response from Gemini, or null if an error occurs.
    * @throws {Error} Throws internally and catches it to prevent crashing, logging the failure instead.
    * @private
    */
-  async _generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile) {
+  async _generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile, mediaObject) {
     try {
       if (!geminiClient) {
           geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -48,24 +49,36 @@ class ResponseEngine {
       // Map OpenAI roles to Gemini roles ('assistant' -> 'model')
       const geminiContext = (recentContext || []).map(msg => ({
         role: msg.role === 'assistant' ? 'model' : msg.role,
-        parts: [{ text: msg.content || "" }] // Salvavidas en caso de que el contenido venga vacío
+        parts: [{ text: msg.content || "" }] 
       }));
+
+      // ==========================================
+      // 👁️ NERVIO ÓPTICO PARA GEMINI
+      // ==========================================
+      const userParts = [{ text: incomingMessage }];
+      
+      // Si el MessageProcessor nos mandó una imagen, la inyectamos nativamente
+      if (mediaObject && mediaObject.data && mediaObject.mimetype) {
+          userParts.push({
+              inlineData: {
+                  data: mediaObject.data,
+                  mimeType: mediaObject.mimetype
+              }
+          });
+      }
 
       const contents = [
         ...geminiContext,
-        { role: 'user', parts: [{ text: incomingMessage }] }
+        { role: 'user', parts: userParts }
       ];
 
       const response = await geminiClient.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.1-flash-preview', // <-- Asegúrate de usar tu modelo preferido
         contents: contents,
         config: {
           systemInstruction: systemContent,
           maxOutputTokens: 800,
           temperature: 0.75,
-          // ==========================================
-          // 🧠 Nivel de pensamiento ajustado
-          // ==========================================
           thinkingConfig: {
             thinkingLevel: 'minimal'
           }
@@ -84,12 +97,12 @@ class ResponseEngine {
    * @param {Object} contactProfile - The semantic profile containing topics, traits, and recent interactions.
    * @param {string} semanticMemories - A stringified block of relevant past semantic memories.
    * @param {Array<Object>} recentContext - The short-term conversation context for context continuity.
+   * @param {Object|null} mediaObject - Contains Base64 data and mimetype if an image/sticker was received.
    * @returns {Promise<string|null>} The generated text response, or null if generation fails.
-   * @throws {Error} Throws globally if the entire generation process fails unexpectedly.
    */
-  async generateResponse(incomingMessage, contactProfile, semanticMemories, recentContext) {
+  async generateResponse(incomingMessage, contactProfile, semanticMemories, recentContext, mediaObject = null) {
     try {
-      // 0. El reloj del sistema (System Clock - en inglés para máxima precisión del LLM)
+      // 0. El reloj del sistema
       const currentDateTime = new Date().toLocaleString('en-US', { 
         timeZone: 'America/Ciudad_Juarez', 
         weekday: 'long',
@@ -100,27 +113,26 @@ class ResponseEngine {
         minute: '2-digit'
       });
 
-      // 1. Aquí viene toda la identidad (Lorenzo o Camila) envuelta en etiquetas XML
+      // 1. Identidad
       const agentSystemPrompt = personalityEngine.getPersonalityPrompt(contactProfile);
 
-      // 2. Formateo seguro de temas de interés
+      // 2. Temas de interés
       const topicsString = (contactProfile?.topics && contactProfile.topics.length > 0)
         ? `Temas o intereses conocidos: ${contactProfile.topics.join(', ')}`
         : '';
 
-      // 3. Formateo seguro de interacciones recientes
+      // 3. Interacciones recientes
       const interactionsString = (contactProfile?.recent_interactions && contactProfile.recent_interactions.length > 0)
         ? contactProfile.recent_interactions.map(int => {
             const dateStr = new Date(int.date).toLocaleDateString('en-US', { 
               timeZone: 'America/Ciudad_Juarez', month: 'short', day: 'numeric' 
             });
-            // Si la memoria tiene etiqueta de agente, la mostramos en mayúsculas
             const agentTag = int.agent ? `(Memoria de ${int.agent.toUpperCase()}): ` : '';
             return `[${dateStr}] ${agentTag}${int.summary}`;
           }).join('\n')
         : '';
 
-      // 4. El prompt maestro (Agnóstico y con conciencia temporal)
+      // 4. El prompt maestro
       const systemContent = `
 ${agentSystemPrompt}
 
@@ -154,16 +166,31 @@ ${semanticMemories ? `\n<semantic_memories>\nUse ONLY if they add direct value t
 
       const activeLLM = process.env.ACTIVE_LLM || 'openai';
 
-      // ---> LOG DE DEPURACIÓN (Descomenta para ver la magia de las etiquetas XML) <---
-      // logger.info({ contact: contactProfile?.name, systemPrompt: systemContent }, 'Prompt enviado al LLM');
-
       if (activeLLM === 'gemini') {
-         return await this._generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile);
+         return await this._generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile, mediaObject);
       } else {
+         // ==========================================
+         // 👁️ NERVIO ÓPTICO PARA OPENAI
+         // ==========================================
+         let userContent = incomingMessage;
+         
+         // Si hay una imagen, convertimos el contenido en un array multimodal nativo de OpenAI
+         if (mediaObject && mediaObject.data && mediaObject.mimetype) {
+             userContent = [
+                 { type: "text", text: incomingMessage },
+                 { 
+                     type: "image_url", 
+                     image_url: { 
+                         url: `data:${mediaObject.mimetype};base64,${mediaObject.data}` 
+                     } 
+                 }
+             ];
+         }
+
          const messages = [
            { role: 'system', content: systemContent },
            ...(recentContext || []),
-           { role: 'user', content: incomingMessage }
+           { role: 'user', content: userContent }
          ];
          return await this._generateOpenAIResponse(messages, contactProfile);
       }
