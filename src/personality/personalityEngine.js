@@ -179,7 +179,7 @@ class PersonalityEngine {
    * @returns {Object} An object containing low temperature and limited completion tokens configuration.
    */
   getSmallClassificationOptions() {
-    return { temperature: 0, max_completion_tokens: 50 };
+    return { temperature: 0, max_output_tokens: 50 };
   }
 
   /**

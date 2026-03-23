@@ -152,7 +152,7 @@ class MemoryIngestionManager {
     try {
       const response = await getCompletion([{ role: 'system', content: prompt }], {
         temperature: 0.1,
-        max_completion_tokens: 80,
+        max_output_tokens: 80,
         response_format: { type: "json_object" }
       });
 

@@ -1,27 +1,18 @@
 const { getCompletion } = require('./openaiClient');
-const { GoogleGenAI } = require('@google/genai');
+const { getGeminiCompletion } = require('./geminiClient'); // <-- Importamos el nuevo cliente
 const personalityEngine = require('../personality/personalityEngine');
 const logger = require('../utils/logger');
 const { buildMasterSystemPrompt } = require('../prompts');
-
-let geminiClient = null;
 
 /**
  * Core engine responsible for routing messages to the appropriate Large Language Model (OpenAI or Gemini) and generating contextual responses.
  */
 class ResponseEngine {
-  /**
-   * Generates a chat completion response using the OpenAI API.
-   * @param {Array<Object>} messages - The array of message objects (system, user, assistant) forming the conversation history.
-   * @param {Object} contactProfile - The contact's profile used for logging and error tracking.
-   * @returns {Promise<string|null>} The text response from OpenAI, or null if an error occurs.
-   * @throws {Error} Throws internally and catches it to prevent crashing, logging the failure instead.
-   * @private
-   */
+  
   async _generateOpenAIResponse(messages, contactProfile) {
     try {
       return await getCompletion(messages, {
-        max_completion_tokens: 80, 
+        max_output_tokens: 80, 
         temperature: 0.75 
       });
     } catch (error) {
@@ -30,23 +21,8 @@ class ResponseEngine {
     }
   }
 
-  /**
-   * Generates a chat completion response using the Google Gemini API.
-   * @param {string} incomingMessage - The latest user message text to respond to.
-   * @param {Array<Object>} recentContext - The recent conversation history in OpenAI format.
-   * @param {string} systemContent - The compiled system prompt defining persona and rules.
-   * @param {Object} contactProfile - The contact's profile used for logging and error tracking.
-   * @param {Object|null} mediaObject - The visual data (base64) from images or stickers.
-   * @returns {Promise<string|null>} The text response from Gemini, or null if an error occurs.
-   * @throws {Error} Throws internally and catches it to prevent crashing, logging the failure instead.
-   * @private
-   */
   async _generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile, mediaObject) {
     try {
-      if (!geminiClient) {
-          geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      }
-
       // Map OpenAI roles to Gemini roles ('assistant' -> 'model')
       const geminiContext = (recentContext || []).map(msg => ({
         role: msg.role === 'assistant' ? 'model' : msg.role,
@@ -58,7 +34,6 @@ class ResponseEngine {
       // ==========================================
       const userParts = [{ text: incomingMessage }];
       
-      // Si el MessageProcessor nos mandó una imagen, la inyectamos nativamente
       if (mediaObject && mediaObject.data && mediaObject.mimetype) {
           userParts.push({
               inlineData: {
@@ -73,37 +48,19 @@ class ResponseEngine {
         { role: 'user', parts: userParts }
       ];
 
-      const response = await geminiClient.models.generateContent({
-        model: 'gemini-3-flash-preview', // <-- Asegúrate de usar tu modelo preferido
-        contents: contents,
-        config: {
-          systemInstruction: systemContent,
-          maxOutputTokens: 800,
-          temperature: 0.75,
-          thinkingConfig: {
-            thinkingLevel: 'minimal'
-          }
-        }
+      // Usamos el nuevo cliente limpio
+      return await getGeminiCompletion(contents, {
+          systemInstruction: systemContent
       });
-      return response.text;
+
     } catch (error) {
       logger.error({ err: error, contact: contactProfile?.name }, 'Gemini failed to generate a reply');
       return null;
     }
   }
 
-  /**
-   * The primary entry point for generating AI responses. Orchestrates context building, temporal awareness, and LLM routing.
-   * @param {string} incomingMessage - The raw or translated text from the user.
-   * @param {Object} contactProfile - The semantic profile containing topics, traits, and recent interactions.
-   * @param {string} semanticMemories - A stringified block of relevant past semantic memories.
-   * @param {Array<Object>} recentContext - The short-term conversation context for context continuity.
-   * @param {Object|null} mediaObject - Contains Base64 data and mimetype if an image/sticker was received.
-   * @returns {Promise<string|null>} The generated text response, or null if generation fails.
-   */
   async generateResponse(incomingMessage, contactProfile, semanticMemories, recentContext, mediaObject = null) {
     try {
-      // 0. El reloj del sistema
       const currentDateTime = new Date().toLocaleString('en-US', { 
         timeZone: 'America/Ciudad_Juarez', 
         weekday: 'long',
@@ -114,15 +71,12 @@ class ResponseEngine {
         minute: '2-digit'
       });
 
-      // 1. Identidad
       const agentSystemPrompt = personalityEngine.getPersonalityPrompt(contactProfile);
 
-      // 2. Temas de interés
       const topicsString = (contactProfile?.topics && contactProfile.topics.length > 0)
         ? `Temas o intereses conocidos: ${contactProfile.topics.join(', ')}`
         : '';
 
-      // 3. Interacciones recientes
       const interactionsString = (contactProfile?.recent_interactions && contactProfile.recent_interactions.length > 0)
         ? contactProfile.recent_interactions.map(int => {
             const dateStr = new Date(int.date).toLocaleDateString('en-US', { 
@@ -133,7 +87,6 @@ class ResponseEngine {
           }).join('\n')
         : '';
 
-      // 4. El prompt maestro
       const systemContent = buildMasterSystemPrompt({
         agentSystemPrompt,
         currentDateTime,
@@ -148,22 +101,27 @@ class ResponseEngine {
       if (activeLLM === 'gemini') {
          return await this._generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile, mediaObject);
       } else {
-         // ==========================================
-         // 👁️ NERVIO ÓPTICO PARA OPENAI
-         // ==========================================
          let userContent = incomingMessage;
          
-         // Si hay una imagen, convertimos el contenido en un array multimodal nativo de OpenAI
+         // ==========================================
+         // 👁️ NERVIO ÓPTICO Y OÍDO PARA OPENAI
+         // ==========================================
          if (mediaObject && mediaObject.data && mediaObject.mimetype) {
-             userContent = [
-                 { type: "text", text: incomingMessage },
-                 { 
-                     type: "image_url", 
-                     image_url: { 
-                         url: `data:${mediaObject.mimetype};base64,${mediaObject.data}` 
-                     } 
-                 }
-             ];
+             if (mediaObject.mimetype.startsWith('image/')) {
+                 // Es imagen/sticker: OpenAI la soporta nativamente
+                 userContent = [
+                     { type: "text", text: incomingMessage },
+                     { 
+                         type: "image_url", 
+                         image_url: { url: `data:${mediaObject.mimetype};base64,${mediaObject.data}` } 
+                     }
+                 ];
+             } else if (mediaObject.mimetype.startsWith('audio/')) {
+                 // Es audio: GPT-5.4-nano requiere Whisper o un endpoint distinto para audio. 
+                 // Le informamos al modelo que está sordo temporalmente para que no crashee.
+                 incomingMessage += "\n\n*(Sistema: El usuario te envió un mensaje de voz, pero en este momento estás operando con el motor de OpenAI sin módulo de transcripción activo. Pídele amablemente al usuario que te escriba el mensaje o dile que tienes los oídos tapados.)*";
+                 userContent = incomingMessage;
+             }
          }
 
          const messages = [

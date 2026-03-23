@@ -43,14 +43,22 @@ const attachListeners = (client) => {
         return;
       }
 
-      // 5. 🛡️ FILTRO DE TIPO DE MENSAJE
-      const invalidTypes = ['sticker', 'audio', 'ptt', 'image', 'video', 'document'];
-      if (message.hasMedia || invalidTypes.includes(message.type) || message.type !== 'chat') {
+      // ==========================================
+      // 5. 🛡️ FILTRO DE TIPO DE MENSAJE (¡PUERTAS ABIERTAS!)
+      // ==========================================
+      
+      // Lista VIP de lo que SÍ vamos a procesar
+      const allowedTypes = ['chat', 'image', 'sticker', 'audio', 'ptt'];
+      
+      // Si el tipo de mensaje NO está en nuestra lista VIP, lo ignoramos.
+      if (!allowedTypes.includes(message.type)) {
+        // console.log(`[🛡️ FILTRO] Bloqueando tipo no soportado: ${message.type}`);
         return;
       }
 
       const text = (message.body || '').trim();
-      if (!text) return;
+      // Si no trae texto Y TAMPOCO trae un archivo adjunto (audio/foto), entonces sí mátalo
+      if (!text && !message.hasMedia) return;
 
       // 6. OBTENER CHAT
       const chat = await message.getChat();

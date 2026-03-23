@@ -185,18 +185,23 @@ class MessageProcessor {
     async processIncomingMessage(message, chat) {
         // 1. INTERVENCIÓN MANUAL (Modo Mago de Oz) - Pase Directo
         if (message.fromMe) {
-            const manualText = message.body?.trim();
-            if (!manualText || manualText.startsWith('!')) return;
+            const manualText = message.body?.trim() || "";
+            
+            // Si está completamente vacío (sin texto ni media) o es un comando, aborta
+            if ((!manualText && !message.hasMedia) || manualText.startsWith('!')) return;
 
             const targetId = message.to;
             const activeAgent = personalityEngine.activeAgent;
             
+            // Si mandaste un audio/sticker sin texto, ponemos una etiqueta descriptiva
+            const displayContent = manualText || `[Archivo adjunto: ${message.type}]`;
+            
             let memoryNote = activeAgent === 'camila' 
-                ? `*(System Note: Lorenzo, the real human boss, just took the phone and manually sent this message to the user: "${manualText}")*`
-                : manualText;
+                ? `*(System Note: Lorenzo, the real human boss, just took the phone and manually sent this message to the user: "${displayContent}")*`
+                : displayContent;
 
             conversationContext.addMessage(targetId, "assistant", memoryNote);
-            console.log(`\x1b[35m[👁️ INTERVENCIÓN HUMANA]\x1b[0m Tú escribiste: ${manualText}`);
+            console.log(`\x1b[35m[👁️ INTERVENCIÓN HUMANA]\x1b[0m Tú enviaste: ${displayContent}`);
             return; 
         }
 
@@ -270,7 +275,7 @@ class MessageProcessor {
                         if (!textPiece) {
                             textPiece = msg.type === 'sticker' 
                                 ? "*(El usuario te envió este sticker gráfico)*"
-                                : "*(El usuario te envió esta imagen)*";
+                                : "*(El usuario te envió esta imagen/audio)*";
                         }
                         console.log(`\x1b[36m[👁️ NERVIO ÓPTICO]\x1b[0m Media capturada con éxito.`);
                     } else {
@@ -283,7 +288,27 @@ class MessageProcessor {
                     console.log(`\x1b[31m[⚠️ NERVIO ÓPTICO FALLÓ]\x1b[0m ${error.message}`);
                 }
             } else if (msg.type === 'audio' || msg.type === 'ptt') {
-                textPiece = "*(El usuario te envió una nota de voz, pero aún no tienes oídos)*";
+                try {
+                    // Carrera contra el tiempo: 8 segundos máximo para descargar el audio (Las notas de voz largas pesan más)
+                    const media = await Promise.race([
+                        msg.downloadMedia(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout al descargar audio de WA')), 8000))
+                    ]);
+
+                    if (media && media.data) {
+                        finalMediaObject = { data: media.data, mimetype: media.mimetype };
+                        if (!textPiece) {
+                            textPiece = "*(El usuario te envió esta nota de voz. Escúchala con atención y responde al contenido y al tono.)*";
+                        }
+                        console.log(`\x1b[36m[👂 OÍDO BIÓNICO]\x1b[0m Audio capturado con éxito (${media.mimetype}).`);
+                    } else {
+                        // El archivo venía corrupto de WhatsApp
+                        if (!textPiece) textPiece = `*(El usuario te envió un audio, pero el archivo estaba corrupto y no se pudo escuchar)*`;
+                    }
+                } catch (error) {
+                    if (!textPiece) textPiece = `*(El usuario intentó enviar un audio pero falló la descarga de WhatsApp)*`;
+                    console.log(`\x1b[31m[⚠️ OÍDO BIÓNICO FALLÓ]\x1b[0m ${error.message}`);
+                }
             }
 
             if (textPiece) {

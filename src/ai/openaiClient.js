@@ -27,7 +27,7 @@ async function getEmbedding(input) {
 }
 
 /**
- * Gets a chat completion.
+ * Gets a generation response using the new Responses API.
  * @param {object[]} messages 
  * @param {object} options Override defaults (temperature, max_tokens, etc)
  */
@@ -38,15 +38,39 @@ async function getCompletion(messages, options = {}) {
       temperature: 0.7,
     };
     
-    // Merge options
     const finalOptions = { ...defaultOptions, ...options };
 
-    const response = await openai.chat.completions.create({
-      messages,
+    // ==========================================
+    // 🛠️ TRADUCTOR DE JSON MODE (LEGACY A RESPONSES API)
+    // ==========================================
+    if (finalOptions.response_format) {
+        // Le pasamos el objeto completo { type: "json_object" } en lugar del puro string
+        finalOptions.text = { format: finalOptions.response_format };
+        delete finalOptions.response_format; 
+    }
+
+    // ==========================================
+    // 🛠️ MAPEADOR: De Messages a Items
+    // ==========================================
+    const items = messages.map(msg => {
+      // Si el mensaje ya trae formato avanzado (como el arreglo multimodal de imágenes), 
+      // lo pasamos tal cual, solo le inyectamos el type: "message"
+      return {
+        type: "message",
+        role: msg.role,
+        content: msg.content
+      };
+    });
+
+    // ==========================================
+    // 🚀 NUEVA RESPONSES API
+    // ==========================================
+    const response = await openai.responses.create({
+      input: items,
       ...finalOptions
     });
 
-    return response.choices[0].message.content;
+    return response.output_text;
   } catch (error) {
     logger.error({ err: error }, 'Failed to get completion from OpenAI');
     throw error;

@@ -134,7 +134,7 @@ Set "requires_human": false for normal social behavior:
 
       const responseText = await getCompletion(messages, {
         ...smallOptions,
-        max_completion_tokens: 120,
+        max_output_tokens: 120,
         response_format: { type: "json_object" }
       });
 
