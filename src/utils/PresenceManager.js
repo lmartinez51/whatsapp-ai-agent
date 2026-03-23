@@ -18,9 +18,9 @@ class PresenceManager {
       max = 2000;  // 2 segs
     } 
     // 2. La Pareja
-    else if (relationship === 'pareja') {
+    else if (relationship === 'pareja' || relationship === 'ex-pareja') {
       min = 2000;  // 2 segs
-      max = 6000;  // 6 segs
+      max = 4000;  // 4 segs
     } 
     // 3. VIPs Tier 1 (Heavy Sarcasm)
     else if (personalityEngine.heavySarcasmContacts.includes(contactId)) {

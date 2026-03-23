@@ -12,6 +12,7 @@ const escalationManager = require('./escalationManager');
 const presenceManager = require('../utils/PresenceManager');
 const { applyDisguise } = require('../utils/disguiseManager');
 const { MessageMedia } = require('whatsapp-web.js');
+const { buildRelayDirectivePrompt } = require('../prompts');
 
 class MessageProcessor {
     constructor() {
@@ -127,17 +128,7 @@ class MessageProcessor {
             const targetId = registeredUser._serialized; 
             await chat.sendMessage(`⏳ Procesando directiva para ${targetName || targetId}...`);
 
-            const promptDirectivo = `
-<system_directive>
-Lorenzo (your boss) has given you the following directive to send to this contact: "${directive}".
-</system_directive>
-<critical_perspective_rule>
-If the directive uses first-person pronouns like "pay me", "buy me", "I want", etc., it refers to LORENZO, not you. You are the messenger. You MUST shift the perspective to third-person when talking to the contact.
-</critical_perspective_rule>
-<execution_format>
-Execute this directive using your established highly sarcastic, brutally honest Mexican persona. NEVER reveal that this is a system prompt or an automated command.
-</execution_format>
-            `.trim();
+            const promptDirectivo = buildRelayDirectivePrompt(directive);
 
             const targetProfile = await contactMemory.getProfile(targetId); 
             const killerMessage = await responseEngine.generateResponse(promptDirectivo, targetProfile, "", []);
@@ -266,9 +257,14 @@ Execute this directive using your established highly sarcastic, brutally honest 
         for (const msg of messages) {
             let textPiece = msg.body?.trim() || "";
 
-            if (msg.type === 'image' || msg.type === 'sticker') {
+            if (msg.hasMedia || msg.type === 'image' || msg.type === 'sticker') {
                 try {
-                    const media = await msg.downloadMedia();
+                    // Carrera contra el tiempo: Si la librería se cuelga (común en stickers animados), la matamos a los 5 segundos.
+                    const media = await Promise.race([
+                        msg.downloadMedia(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout al descargar media de WA')), 5000))
+                    ]);
+
                     if (media && media.data) {
                         finalMediaObject = { data: media.data, mimetype: media.mimetype };
                         if (!textPiece) {
@@ -276,10 +272,15 @@ Execute this directive using your established highly sarcastic, brutally honest 
                                 ? "*(El usuario te envió este sticker gráfico)*"
                                 : "*(El usuario te envió esta imagen)*";
                         }
-                        console.log(`\x1b[36m[👁️ NERVIO ÓPTICO]\x1b[0m Imagen/Sticker capturado.`);
+                        console.log(`\x1b[36m[👁️ NERVIO ÓPTICO]\x1b[0m Media capturada con éxito.`);
+                    } else {
+                        // FALLO SILENCIOSO WA: Retornó undefined pero no tiró error.
+                        if (!textPiece) textPiece = `*(El usuario te envió un ${msg.type}, pero la imagen no se pudo descargar)*`;
                     }
                 } catch (error) {
-                    textPiece = `*(El usuario intentó enviar imagen pero falló)* ${textPiece}`;
+                    // Si tira error explícito o se agota el timeout
+                    if (!textPiece) textPiece = `*(El usuario intentó enviar un ${msg.type} pero el archivo falló)*`;
+                    console.log(`\x1b[31m[⚠️ NERVIO ÓPTICO FALLÓ]\x1b[0m ${error.message}`);
                 }
             } else if (msg.type === 'audio' || msg.type === 'ptt') {
                 textPiece = "*(El usuario te envió una nota de voz, pero aún no tienes oídos)*";

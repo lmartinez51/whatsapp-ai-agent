@@ -68,7 +68,7 @@ class ConfidenceEngine {
       const classification = await classifier.classify(messageText);
       const score = this.evaluateConfidence(classification);
       
-      const threshold = config.confidenceThreshold || 0.65; 
+      const threshold = config.confidenceThreshold || 0.35; 
 
       const isAllowed = score >= threshold;
       let responseMode = "auto";
