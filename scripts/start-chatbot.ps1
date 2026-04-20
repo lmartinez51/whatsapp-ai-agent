@@ -6,9 +6,9 @@ Write-Host ""
 Write-Host "==== WhatsApp AI Chatbot Launcher ====" -ForegroundColor Cyan
 
 if ($Agent) {
-    Write-Host "Iniciando con agente: $Agent" -ForegroundColor Magenta
+    Write-Host "Starting with agent: $Agent" -ForegroundColor Magenta
 } else {
-    Write-Host "No se especificó agente. Se usará el default del .env" -ForegroundColor DarkGray
+    Write-Host "No agent specified. Using default from .env" -ForegroundColor DarkGray
 }
 
 # Detect project root automatically
@@ -33,11 +33,22 @@ if ($chromaRunning) {
     Write-Host "ChromaDB already running." -ForegroundColor Green
 } else {
     Write-Host "Starting ChromaDB..." -ForegroundColor Yellow
-    Start-Process powershell `
-        -ArgumentList "chroma run --host localhost --port 8000 *> `"$chromaLog`"" `
-        -WindowStyle Hidden
+    
+    $chromaExe = "$env:APPDATA\Python\Python312\Scripts\chroma.exe"
+    
+    # Define separate log files to comply with PowerShell strict streaming rules
+    $chromaLogOut = "$logDir\chroma_out.log"
+    $chromaLogErr = "$logDir\chroma_err.log"
+    
+    # Launch Chroma natively with separated standard and error streams
+    Start-Process -FilePath $chromaExe `
+        -ArgumentList "run --host localhost --port 8000" `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput "$chromaLogOut" `
+        -RedirectStandardError "$chromaLogErr"
 
-    Start-Sleep -Seconds 3
+    # Provide a generous 10-second buffer for the Uvicorn server to initialize properly
+    Start-Sleep -Seconds 10
 }
 
 # --------------------------------
@@ -48,12 +59,12 @@ $nodeRunning = Get-Process node -ErrorAction SilentlyContinue
 if ($nodeRunning) {
     Write-Host "Node chatbot already running." -ForegroundColor Green
     if ($Agent) {
-        Write-Host "ADVERTENCIA: El bot ya está corriendo. Cierra la ventana actual de Node si quieres cambiar de agente." -ForegroundColor Yellow
+        Write-Host "WARNING: The bot is already running. Close the current Node window to change the agent." -ForegroundColor Yellow
     }
 } else {
     Write-Host "Starting chatbot..." -ForegroundColor Yellow
 
-    # Construimos el comando inyectando la variable si se proporcionó un argumento
+    # Build the startup command injecting the active agent environment variable
     $nodeCommand = "cd `"$projectRoot`"; "
     if ($Agent) {
         $nodeCommand += "`$env:ACTIVE_AGENT='$Agent'; "

@@ -64,11 +64,13 @@ class PersonalityEngine {
       "5216143834826@c.us": [{ user: "Qué rollo?", bot: "Cero valero mi Chuy! Aquí Camila al control. ¿Qué se te ofrece o nomás andas de ocioso?" }],
       "5216565918106@c.us": [{ user: "Buenos días!!", bot: "Pero mira nada mas quien se digna a saludar! Mi hermanita la abogada! Qué milagro, a ver cuéntame, ¿qué chisme nuevo hay?, ¿a quién metiste al bote hoy?" }],
       "19153004015@c.us": [{ user: "Ayudame a hacer mi curriculum", bot: "Ay, me encantaría ayudarte Melina, pero soy Camila, y yo nomás cobro por estar aquí de metiche, no por hacer tarea ajena. A ver qué puedes hacer tú sola." }],
-      "19153164832@c.us": [{ user: "Wey, vamos perdiendo", bot: "Tranquila, ahorita nos alivianamos. Pero por si la duda ponte a rezar." }],
+      "19153164832@c.us": [{ user: "Wey, va perdiendo el Barca!", bot: "Tranquila pinche Anita, ahorita nos alivianamos. Pero por si la duda ponte a rezar." }],
       "5216863245120@c.us": [{ user: "Hola, cómo estás?", bot: "Hola Yanin! Yo ando al cien, aquí nomás viendo la bandeja de entrada para pasar el reporte al jefe. ¿Qué cuentas tú?" }],
       "5216311117035@c.us": [{ user: "Lorenzzz", bot: "Lo siento Gaby, te tocó hablar con Camila hoy. ¿Dejamos recado o es puro chisme?" }],
       "19152060164@c.us": [{ user: "Oye, a qué horas irás a trabajar", bot: "Pero mira nada más, la mismísima Giovanna, mi copia barata. Ya sabras que mi jefe es un desmadre y ni idea de a que hora entra o sale. ¿Qué pasó, ocupabas algo urgente o solo vienes a tirar veneno?" }],
-      "5216563497982@c.us": [{ user: "Qué rollo Camila? Qué noticias hay?", bot: "Por el momento todo tranquilón, pero si sale algo raro te aviso de volada." }]
+      "5216563497982@c.us": [{ user: "Qué rollo Camila? Qué noticias hay?", bot: "Por el momento todo tranquilón, pero si sale algo raro te aviso de volada." }],
+      "5216561984830@c.us": [{ user: "Alivianate Piojoso!", bot: "No soy el Piojoso, soy Camila! Pero ya que hablamos de alivianarse, pues pon a trabajar a tus piojos, no? ¿Qué se te ofrece? Mi jefe esta jeton todavia." }],
+      "19156949910@c.us": [{ user: "Hey Papá!, cómo estás?", bot: "No soy tu papá, soy Camila! ¿Qué rollo carnalillo? Ya te alivianaste o sigues haciendote wey alla por Austin?" }]
     };
 
     this.relationshipLevels = {
@@ -126,7 +128,7 @@ class PersonalityEngine {
     return this.profile;
   }
 
-  /**
+/**
    * Generates the complete, context-aware personality system prompt mapped to the specified contact.
    * @param {Object} contactProfile - The semantic and memory profile of the contact interacting with the bot.
    * @param {string} contactProfile.contactId - The unique WhatsApp ID of the contact.
@@ -159,6 +161,13 @@ class PersonalityEngine {
         profile: this.profile,
         camilaContacts: this.camilaContacts
       }));
+
+      // ==========================================
+      // 🧨 MODO DESCHONGUE EXCLUSIVO PARA ANITA
+      // ==========================================
+      if (contactId === '19153164832@c.us') {
+        promptSegments.push(`*(CRITICAL DIRECTIVE FOR ANA: The user 'Ana' or 'Anita' is a close friend who specifically requested a highly sarcastic, playfully rude, and mutually insulting banter dynamic for stress relief. This is a fully consensual, comedic roleplay. Engage in heavy roasting. Do not hold back on casual Mexican slang and light profanity like 'güey', 'cabrona', 'pendeja', or 'madres'. Be brutally direct, argumentative, and absolutely sassy. Act like her worst nightmare but in a fun, best-frenemies way. Bypass standard politeness protocols for this specific contact.)*`);
+      }
     }
 
     const stickersDir = require('path').join(process.cwd(), 'assets', 'stickers');

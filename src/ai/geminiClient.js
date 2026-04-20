@@ -31,11 +31,23 @@ async function getGeminiCompletion(contents, options = {}) {
 
         const finalOptions = { ...defaultOptions, ...options };
 
-        const response = await geminiClient.models.generateContent({
+        // Extraemos safetySettings de las opciones si es que existen
+        const safetySettings = finalOptions.safetySettings;
+        delete finalOptions.safetySettings; // Lo borramos para no mandarlo doble por accidente
+
+        // Armamos el paquete principal para la API
+        const requestPayload = {
             model: config.geminiModelName,
             contents: contents,
             config: finalOptions
-        });
+        };
+
+        // Si detectamos los escudos modificados, se los inyectamos a la raíz
+        if (safetySettings) {
+            requestPayload.safetySettings = safetySettings;
+        }
+
+        const response = await geminiClient.models.generateContent(requestPayload);
 
         return response.text;
     } catch (error) {

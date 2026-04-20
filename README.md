@@ -6,11 +6,11 @@ AI'm Camila is an advanced WhatsApp agent designed to simulate a natural, contex
 
 ## ✨ Core Features
 
-* **Dual-LLM Strategy Pattern**: Hot-swap seamlessly between OpenAI (GPT-4o/5.4) and Google Gemini (3.1 Flash/Pro) at runtime. Get the best of both worlds depending on your latency or reasoning needs.
-* **Multimodal Vision (Nervio Óptico)**: Native support for processing images and stickers. The engine intercepts media, converts it to Base64, and feeds it directly to the active LLM, allowing the agent to "see" and react to visual context.
+* **Dual-LLM Swarm Architecture**: Hot-swap seamlessly between OpenAI (GPT-5.4-nano) and Google Gemini (3.1 Flash) at runtime. The system uses a microservices approach where OpenAI (via the modern Responses API) acts as a high-speed intent classifier and memory router in the background, while the active LLM drives the conversational persona.
+* **True Multimodality (Nervio Óptico & Oído Biónico)**: Native support for processing images, stickers, and **voice notes**. The engine intercepts media, converts it to Base64, and feeds it directly to the active LLM. Gemini can natively "listen" to audio tone and "see" visual context, while the OpenAI fallback gracefully handles media state without crashing.
 * **Smart Message Debouncing**: A built-in 7-second queue system groups rapid-fire messages into a single cohesive block, preventing LLM race conditions, mimicking human reading speeds, and optimizing API costs.
 * **Active Listening Protocol**: The agent understands human conversational flow. It detects storytelling or incomplete thoughts (e.g., "Guess what...") and responds with natural continuers (e.g., "👀", "👂🏻") instead of interrupting with full paragraphs.
-* **Wizard of Oz Mode**: Seamlessly take over the chat. Manual messages sent from the host phone are silently injected into the agent's context memory, allowing the AI to seamlessly adapt to your real-world interventions without breaking character.
+* **Advanced Wizard of Oz Mode**: Seamlessly take over the chat. Manual texts, *images, and voice notes* sent from the host phone are silently injected into the agent's context memory, allowing the AI to adapt to your real-world interventions without breaking character or missing a beat.
 * **Native Sticker Interceptor**: Conversations are more expressive! When the LLM outputs `[STICKER: exact_name]`, the engine intercepts the tag and natively sends the corresponding local `.webp` file to the chat.
 * **Professional Bilingual Documentation**: Built with maintainability in mind. The codebase strictly adheres to an American English standard for JSDoc and architectural documentation, while utilizing Spanish for intuitive inline logic comments.
 

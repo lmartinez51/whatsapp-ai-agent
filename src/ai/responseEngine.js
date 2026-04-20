@@ -48,10 +48,30 @@ class ResponseEngine {
         { role: 'user', parts: userParts }
       ];
 
-      // Usamos el nuevo cliente limpio
-      return await getGeminiCompletion(contents, {
+      const geminiOptions = {
           systemInstruction: systemContent
-      });
+      };
+
+      // ==========================================
+      // 🛡️ MODO DESCHONGUE: Bajar escudos para Anita
+      // ==========================================
+      // Reducimos el filtro de acoso a "BLOCK_ONLY_HIGH" para permitir lenguaje soez y roast
+      if (contactProfile && contactProfile.contactId === '19153164832@c.us') {
+          geminiOptions.safetySettings = [
+              {
+                  category: 'HARM_CATEGORY_HARASSMENT',
+                  threshold: 'BLOCK_ONLY_HIGH' 
+              },
+              {
+                  category: 'HARM_CATEGORY_HATE_SPEECH',
+                  threshold: 'BLOCK_ONLY_HIGH'
+              }
+          ];
+          console.log(`\x1b[31m[⚠️ MODO DESCHONGUE ACTIVADO]\x1b[0m Filtros de seguridad reducidos temporalmente para Ana.`);
+      }
+
+      // Usamos el cliente limpio con las nuevas opciones
+      return await getGeminiCompletion(contents, geminiOptions);
 
     } catch (error) {
       logger.error({ err: error, contact: contactProfile?.name }, 'Gemini failed to generate a reply');

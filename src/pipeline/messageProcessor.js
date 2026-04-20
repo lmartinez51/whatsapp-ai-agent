@@ -196,8 +196,9 @@ class MessageProcessor {
             // Si mandaste un audio/sticker sin texto, ponemos una etiqueta descriptiva
             const displayContent = manualText || `[Archivo adjunto: ${message.type}]`;
             
+            // Armamos la nota de sistema limitando la intervención de Lorenzo a un "cameo"
             let memoryNote = activeAgent === 'camila' 
-                ? `*(System Note: Lorenzo, the real human boss, just took the phone and manually sent this message to the user: "${displayContent}")*`
+                ? `*(System Action: Lorenzo, the real human host, just intervened briefly to send this message: "${displayContent}". CRITICAL DIRECTIVE: The user's next response will likely react to Lorenzo. Do not take it personally. Act as a sassy third-party observer for this specific exchange. Remember that Lorenzo's appearance is a brief cameo; you remain the primary AI assistant in charge of the main conversation with the user.)*`
                 : displayContent;
 
             conversationContext.addMessage(targetId, "assistant", memoryNote);
