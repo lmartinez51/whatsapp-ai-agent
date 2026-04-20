@@ -20,39 +20,62 @@ async function getGeminiCompletion(contents, options = {}) {
         throw new Error("Gemini client is not initialized. Check your GEMINI_API_KEY.");
     }
 
-    try {
-        const defaultOptions = {
-            temperature: config.geminiTemperature,
-            maxOutputTokens: 800,
-            thinkingConfig: {
-                thinkingLevel: 'minimal'
-            }
-        };
-
-        const finalOptions = { ...defaultOptions, ...options };
-
-        // Extraemos safetySettings de las opciones si es que existen
-        const safetySettings = finalOptions.safetySettings;
-        delete finalOptions.safetySettings; // Lo borramos para no mandarlo doble por accidente
-
-        // Armamos el paquete principal para la API
-        const requestPayload = {
-            model: config.geminiModelName,
-            contents: contents,
-            config: finalOptions
-        };
-
-        // Si detectamos los escudos modificados, se los inyectamos a la raíz
-        if (safetySettings) {
-            requestPayload.safetySettings = safetySettings;
+    const defaultOptions = {
+        temperature: config.geminiTemperature,
+        maxOutputTokens: 800,
+        thinkingConfig: {
+            thinkingLevel: 'minimal'
         }
+    };
 
-        const response = await geminiClient.models.generateContent(requestPayload);
+    const finalOptions = { ...defaultOptions, ...options };
+    const safetySettings = finalOptions.safetySettings;
+    delete finalOptions.safetySettings; 
 
-        return response.text;
-    } catch (error) {
-        logger.error({ err: error }, 'Failed to get completion from Gemini');
-        throw error;
+    const requestPayload = {
+        model: config.geminiModelName, // Aquí debe estar jalando tu 'gemini-3-flash-preview' del .env
+        contents: contents,
+        config: finalOptions
+    };
+
+    if (safetySettings) {
+        requestPayload.safetySettings = safetySettings;
+    }
+
+    // ==========================================
+    // 🛡️ SISTEMA DE SUPERVIVENCIA (Exponential Backoff)
+    // ==========================================
+    const MAX_RETRIES = 3;
+    let delayMs = 2000; // Empezamos esperando 2 segundos
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            // Intentamos contactar a la API
+            const response = await geminiClient.models.generateContent(requestPayload);
+            return response.text;
+
+        } catch (error) {
+            // Buscamos las firmas clásicas de un servidor saturado (Código 503 o 429)
+            const isTransientError = 
+                error.status === 503 || 
+                error.status === 429 || 
+                (error.message && (error.message.toLowerCase().includes('overloaded') || error.message.includes('503') || error.message.includes('429')));
+
+            if (isTransientError && attempt < MAX_RETRIES) {
+                console.log(`\x1b[33m[⚠️ API SATURADA]\x1b[0m Gemini está ocupado. Reintento ${attempt}/${MAX_RETRIES} en ${delayMs/1000}s...`);
+                
+                // Pausamos la ejecución por 'delayMs' milisegundos
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                
+                // Duplicamos el tiempo de espera para el siguiente intento (2s -> 4s -> 8s)
+                delayMs *= 2; 
+                continue; // Volvemos a iniciar el ciclo for
+            }
+
+            // Si el error es otra cosa (ej. llave inválida) o se nos acabaron los intentos, lanzamos el error real
+            logger.error({ err: error, attempt }, 'Failed to get completion from Gemini after retries');
+            throw error;
+        }
     }
 }
 
