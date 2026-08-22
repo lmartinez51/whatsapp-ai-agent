@@ -1,8 +1,31 @@
 const { getCompletion } = require('./openaiClient');
-const { getGeminiCompletion } = require('./geminiClient'); // <-- Importamos el nuevo cliente
+const { getGeminiCompletionResult } = require('./geminiClient'); // <-- Importamos el nuevo cliente
 const personalityEngine = require('../personality/personalityEngine');
 const logger = require('../utils/logger');
 const { buildMasterSystemPrompt } = require('../prompts');
+
+function cloneGeminiContent(content) {
+  if (!content || !Array.isArray(content.parts)) return null;
+  return JSON.parse(JSON.stringify(content));
+}
+
+function mapContextMessageToGemini(message) {
+  if (message.geminiContent && (message.role === 'assistant' || message.role === 'model')) {
+    return cloneGeminiContent(message.geminiContent);
+  }
+
+  const role = message.role === 'assistant' ? 'model' : message.role;
+  if (role !== 'user' && role !== 'model') return null;
+
+  const content = typeof message.content === 'string'
+    ? message.content
+    : JSON.stringify(message.content || '');
+
+  return {
+    role,
+    parts: [{ text: content }]
+  };
+}
 
 /**
  * Core engine responsible for routing messages to the appropriate Large Language Model (OpenAI or Gemini) and generating contextual responses.
@@ -23,11 +46,11 @@ class ResponseEngine {
 
   async _generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile, mediaObject) {
     try {
-      // Map OpenAI roles to Gemini roles ('assistant' -> 'model')
-      const geminiContext = (recentContext || []).map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : msg.role,
-        parts: [{ text: msg.content || "" }] 
-      }));
+      // Map OpenAI roles to Gemini roles ('assistant' -> 'model').
+      // Preserve raw Gemini model content when available so thought signatures survive turns.
+      const geminiContext = (recentContext || [])
+        .map(mapContextMessageToGemini)
+        .filter(Boolean);
 
       // ==========================================
       // 👁️ NERVIO ÓPTICO PARA GEMINI
@@ -71,7 +94,13 @@ class ResponseEngine {
       }
 
       // Usamos el cliente limpio con las nuevas opciones
-      return await getGeminiCompletion(contents, geminiOptions);
+      const geminiResult = await getGeminiCompletionResult(contents, geminiOptions);
+      return {
+        text: geminiResult.text,
+        provider: 'gemini',
+        modelContent: geminiResult.content,
+        usageMetadata: geminiResult.usageMetadata
+      };
 
     } catch (error) {
       logger.error({ err: error, contact: contactProfile?.name }, 'Gemini failed to generate a reply');
@@ -79,7 +108,7 @@ class ResponseEngine {
     }
   }
 
-  async generateResponse(incomingMessage, contactProfile, semanticMemories, recentContext, mediaObject = null) {
+  async generateResponseResult(incomingMessage, contactProfile, semanticMemories, recentContext, mediaObject = null) {
     try {
       const currentDateTime = new Date().toLocaleString('en-US', { 
         timeZone: 'America/Ciudad_Juarez', 
@@ -149,13 +178,21 @@ class ResponseEngine {
            ...(recentContext || []),
            { role: 'user', content: userContent }
          ];
-         return await this._generateOpenAIResponse(messages, contactProfile);
+         const replyText = await this._generateOpenAIResponse(messages, contactProfile);
+         return replyText
+           ? { text: replyText, provider: 'openai' }
+           : null;
       }
 
     } catch (error) {
       logger.error({ err: error, contact: contactProfile?.name }, 'ResponseEngine failed to generate a reply');
       return null;
     }
+  }
+
+  async generateResponse(incomingMessage, contactProfile, semanticMemories, recentContext, mediaObject = null) {
+    const result = await this.generateResponseResult(incomingMessage, contactProfile, semanticMemories, recentContext, mediaObject);
+    return result?.text || null;
   }
 }
 

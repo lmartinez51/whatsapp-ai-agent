@@ -13,6 +13,7 @@ const presenceManager = require('../utils/PresenceManager');
 const { applyDisguise } = require('../utils/disguiseManager');
 const { MessageMedia } = require('whatsapp-web.js');
 const { buildRelayDirectivePrompt } = require('../prompts');
+const { normalizeStickerName, resolveStickerPath } = require('../utils/stickerUtils');
 
 class MessageProcessor {
     constructor() {
@@ -20,6 +21,30 @@ class MessageProcessor {
         this.messageQueues = new Map();
         // ⏱️ Tiempo de espera (en milisegundos) antes de dar por terminado el "chisme"
         this.DEBOUNCE_TIME = 7000; 
+    }
+
+    _scheduleQueueProcessing(realId, contact) {
+        return setTimeout(() => {
+            this._processDebouncedQueue(realId, contact)
+                .catch(error => logger.error({ err: error, realId }, 'Error processing debounced message queue'));
+        }, this.DEBOUNCE_TIME);
+    }
+
+    async _downloadMediaWithTimeout(message, timeoutMs, timeoutMessage) {
+        let timeoutId;
+
+        try {
+            return await Promise.race([
+                message.downloadMedia(),
+                new Promise((_, reject) => {
+                    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+                })
+            ]);
+        } finally {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+        }
     }
 
     // ==========================================
@@ -33,8 +58,13 @@ class MessageProcessor {
         const match = finalReplyText.match(stickerRegex);
 
         if (match) {
-            stickerToSend = match[1].trim().toLowerCase();
+            const requestedSticker = match[1].trim();
+            stickerToSend = normalizeStickerName(requestedSticker);
             finalReplyText = finalReplyText.replace(stickerRegex, '').trim();
+
+            if (!stickerToSend) {
+                logger.warn({ requestedSticker }, 'Rejected invalid sticker token');
+            }
         }
 
         if (finalReplyText) {
@@ -42,9 +72,10 @@ class MessageProcessor {
         }
 
         if (stickerToSend) {
-            const stickerPath = path.join(process.cwd(), 'assets', 'stickers', `${stickerToSend}.webp`);
+            const stickersDir = path.join(process.cwd(), 'assets', 'stickers');
+            const stickerPath = resolveStickerPath(stickersDir, stickerToSend);
             
-            if (fs.existsSync(stickerPath)) {
+            if (stickerPath && fs.existsSync(stickerPath)) {
                 const stickerMedia = MessageMedia.fromFilePath(stickerPath);
                 await client.sendMessage(targetId, stickerMedia, { sendMediaAsSticker: true });
                 console.log(`\x1b[35m🎯 [STICKER DISPARADO a ${targetId}]:\x1b[0m ${stickerToSend}`);
@@ -58,7 +89,7 @@ class MessageProcessor {
     // 👑 MANEJADOR DE COMANDOS (Ejecución Inmediata)
     // ==========================================
     async _handleCommands(message, chat, commandText, realId) {
-        const args = commandText.slice(1).split(' ');
+        const args = commandText.slice(1).trim().split(/\s+/);
         const command = args[0].toLowerCase();
 
         if (command === 'switch') {
@@ -90,6 +121,11 @@ class MessageProcessor {
             let targetName = "";
             let directive = "";
 
+            if (!args[1]) {
+                await chat.sendMessage(`❌ Error: Usa '!${command} numero directiva' o '!${command} @alias directiva'.`);
+                return;
+            }
+
             if (args[1].startsWith('@')) {
                 const alias = args[1].substring(1).toLowerCase();
                 const aliasesPath = path.join(process.cwd(), 'data', 'aliases.json');
@@ -115,6 +151,11 @@ class MessageProcessor {
             } else {
                 rawNumber = args[1];
                 directive = args.slice(2).join(' ');
+            }
+
+            if (!directive.trim()) {
+                await chat.sendMessage(`❌ Error: Te falta la directiva que quieres enviar.`);
+                return;
             }
 
             const cleanNumber = rawNumber.replace('@c.us', '');
@@ -145,9 +186,9 @@ class MessageProcessor {
         }
 
         if (command === 'guardar-sticker') {
-            const stickerName = args[1];
+            const stickerName = normalizeStickerName(args[1]);
             if (!stickerName) {
-                await chat.sendMessage(`❌ Jefe, te faltó ponerle nombre. Úsalo así: !guardar-sticker nombre`);
+                await chat.sendMessage(`❌ Jefe, ponle un nombre valido. Usa solo letras, numeros, guiones y guion bajo.`);
                 return;
             }
 
@@ -159,10 +200,14 @@ class MessageProcessor {
                         const stickersDir = path.join(process.cwd(), 'assets', 'stickers');
                         if (!fs.existsSync(stickersDir)) fs.mkdirSync(stickersDir, { recursive: true });
 
-                        const filePath = path.join(stickersDir, `${stickerName.toLowerCase()}.webp`);
+                        const filePath = resolveStickerPath(stickersDir, stickerName);
+                        if (!filePath) {
+                            await chat.sendMessage(`❌ Ese nombre de sticker no es seguro.`);
+                            return;
+                        }
                         fs.writeFileSync(filePath, media.data, 'base64');
 
-                        await chat.sendMessage(`✅ ¡Arsenal actualizado! Sticker guardado como [${stickerName.toLowerCase()}]. 🥷`);
+                        await chat.sendMessage(`✅ ¡Arsenal actualizado! Sticker guardado como [${stickerName}]. 🥷`);
                         console.log(`📥 Nuevo sticker guardado en: ${filePath}`);
                     } catch (err) {
                         await chat.sendMessage(`❌ Error al robar el sticker: ${err.message}`);
@@ -232,10 +277,10 @@ class MessageProcessor {
             queue.chat = chat; // Actualizamos al último objeto de chat por si acaso
             
             // Reiniciamos el reloj
-            queue.timer = setTimeout(() => this._processDebouncedQueue(realId, contact), this.DEBOUNCE_TIME);
+            queue.timer = this._scheduleQueueProcessing(realId, contact);
         } else {
             // Es su primer mensaje: Creamos la caja y arrancamos el reloj
-            const timer = setTimeout(() => this._processDebouncedQueue(realId, contact), this.DEBOUNCE_TIME);
+            const timer = this._scheduleQueueProcessing(realId, contact);
             this.messageQueues.set(realId, {
                 messages: [message],
                 chat: chat,
@@ -263,13 +308,37 @@ class MessageProcessor {
         for (const msg of messages) {
             let textPiece = msg.body?.trim() || "";
 
-            if (msg.hasMedia || msg.type === 'image' || msg.type === 'sticker') {
+            if (msg.type === 'audio' || msg.type === 'ptt') {
+                try {
+                    // Carrera contra el tiempo: 8 segundos máximo para descargar el audio.
+                    const media = await this._downloadMediaWithTimeout(
+                        msg,
+                        8000,
+                        'Timeout al descargar audio de WA'
+                    );
+
+                    if (media && media.data) {
+                        finalMediaObject = { data: media.data, mimetype: media.mimetype };
+                        if (!textPiece) {
+                            textPiece = "*(El usuario te envió esta nota de voz. Escúchala con atención y responde al contenido y al tono.)*";
+                        }
+                        console.log(`\x1b[36m[👂 OÍDO BIÓNICO]\x1b[0m Audio capturado con éxito (${media.mimetype}).`);
+                    } else {
+                        // El archivo venía corrupto de WhatsApp
+                        if (!textPiece) textPiece = `*(El usuario te envió un audio, pero el archivo estaba corrupto y no se pudo escuchar)*`;
+                    }
+                } catch (error) {
+                    if (!textPiece) textPiece = `*(El usuario intentó enviar un audio pero falló la descarga de WhatsApp)*`;
+                    console.log(`\x1b[31m[⚠️ OÍDO BIÓNICO FALLÓ]\x1b[0m ${error.message}`);
+                }
+            } else if (msg.hasMedia || msg.type === 'image' || msg.type === 'sticker') {
                 try {
                     // Carrera contra el tiempo: Si la librería se cuelga (común en stickers animados), la matamos a los 5 segundos.
-                    const media = await Promise.race([
-                        msg.downloadMedia(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout al descargar media de WA')), 5000))
-                    ]);
+                    const media = await this._downloadMediaWithTimeout(
+                        msg,
+                        5000,
+                        'Timeout al descargar media de WA'
+                    );
 
                     if (media && media.data) {
                         finalMediaObject = { data: media.data, mimetype: media.mimetype };
@@ -287,28 +356,6 @@ class MessageProcessor {
                     // Si tira error explícito o se agota el timeout
                     if (!textPiece) textPiece = `*(El usuario intentó enviar un ${msg.type} pero el archivo falló)*`;
                     console.log(`\x1b[31m[⚠️ NERVIO ÓPTICO FALLÓ]\x1b[0m ${error.message}`);
-                }
-            } else if (msg.type === 'audio' || msg.type === 'ptt') {
-                try {
-                    // Carrera contra el tiempo: 8 segundos máximo para descargar el audio (Las notas de voz largas pesan más)
-                    const media = await Promise.race([
-                        msg.downloadMedia(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout al descargar audio de WA')), 8000))
-                    ]);
-
-                    if (media && media.data) {
-                        finalMediaObject = { data: media.data, mimetype: media.mimetype };
-                        if (!textPiece) {
-                            textPiece = "*(El usuario te envió esta nota de voz. Escúchala con atención y responde al contenido y al tono.)*";
-                        }
-                        console.log(`\x1b[36m[👂 OÍDO BIÓNICO]\x1b[0m Audio capturado con éxito (${media.mimetype}).`);
-                    } else {
-                        // El archivo venía corrupto de WhatsApp
-                        if (!textPiece) textPiece = `*(El usuario te envió un audio, pero el archivo estaba corrupto y no se pudo escuchar)*`;
-                    }
-                } catch (error) {
-                    if (!textPiece) textPiece = `*(El usuario intentó enviar un audio pero falló la descarga de WhatsApp)*`;
-                    console.log(`\x1b[31m[⚠️ OÍDO BIÓNICO FALLÓ]\x1b[0m ${error.message}`);
                 }
             }
 
@@ -355,13 +402,14 @@ class MessageProcessor {
             }
 
             // LLAMADA AL LLM
-            const replyText = await responseEngine.generateResponse(
+            const responseResult = await responseEngine.generateResponseResult(
                 finalCombinedText,
                 contactProfile,
                 finalMemories, 
                 recentContext,
                 finalMediaObject 
             );
+            const replyText = responseResult?.text;
 
             if (!replyText) return;
             
@@ -377,7 +425,9 @@ class MessageProcessor {
 
             // GUARDAMOS EN MEMORIA EL BLOQUE COMPLETO
             conversationContext.addMessage(realId, "user", finalCombinedText);
-            conversationContext.addMessage(realId, "assistant", replyText);
+            conversationContext.addMessage(realId, "assistant", replyText, {
+                geminiContent: responseResult?.modelContent
+            });
             
             setImmediate(() => {
                 memoryIngestionManager.handleConversationUpdate(realId, finalCombinedText, replyText)

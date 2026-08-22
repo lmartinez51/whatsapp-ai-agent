@@ -22,10 +22,12 @@ const attachListeners = (client) => {
       const messageId = message.id?._serialized;
 
       // 1. Duplicate protection
-      if (processedMessages.has(messageId)) {
+      if (messageId && processedMessages.has(messageId)) {
         return;
       }
-      processedMessages.add(messageId);
+      if (messageId) {
+        processedMessages.add(messageId);
+      }
 
       // 2. 🛡️ ESCUDO DE PROTOCOLO (Anti-Spam de Canales y Status)
       if (message.from === 'status@broadcast' || message.from.includes('@newsletter')) {
@@ -75,7 +77,7 @@ const attachListeners = (client) => {
       await messageProcessor.processIncomingMessage(message, chat);
 
     } catch (error) {
-      if (message.from.includes('@newsletter')) return;
+      if (message.from?.includes('@newsletter')) return;
 
       logger.error(
         { err: error, msgId: message.id?._serialized },

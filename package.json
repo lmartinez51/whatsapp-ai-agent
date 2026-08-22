@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node src/app.js",
     "ingest": "node scripts/ingestChats.js",
-    "embeddings": "node scripts/buildEmbeddings.js"
+    "embeddings": "node scripts/buildEmbeddings.js",
+    "check": "node scripts/checkSyntax.js",
+    "test": "node --test test"
   },
   "keywords": [],
   "author": "",

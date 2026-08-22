@@ -9,77 +9,111 @@ if (config.geminiApiKey) {
     geminiClient = new GoogleGenAI({ apiKey: config.geminiApiKey });
 }
 
+const SAMPLING_CONFIG_KEYS = ['temperature', 'topP', 'topK', 'top_p', 'top_k'];
+
+function normalizeThinkingLevel(level) {
+    const normalized = (level || 'medium').trim().toLowerCase();
+    const allowedLevels = new Set(['minimal', 'low', 'medium', 'high']);
+    const safeLevel = allowedLevels.has(normalized) ? normalized : 'medium';
+    return safeLevel.toUpperCase();
+}
+
+function buildGeminiRequestPayload(contents, options = {}) {
+    const { thinkingConfig = {}, ...configOverrides } = options;
+    const finalConfig = {
+        maxOutputTokens: 800,
+        ...configOverrides,
+        thinkingConfig: {
+            thinkingLevel: normalizeThinkingLevel(config.geminiThinkingLevel),
+            ...thinkingConfig
+        }
+    };
+
+    finalConfig.thinkingConfig.thinkingLevel = normalizeThinkingLevel(finalConfig.thinkingConfig.thinkingLevel);
+    delete finalConfig.thinkingConfig.thinkingBudget;
+
+    for (const key of SAMPLING_CONFIG_KEYS) {
+        delete finalConfig[key];
+    }
+
+    return {
+        model: config.geminiModelName,
+        contents,
+        config: finalConfig
+    };
+}
+
+function getFirstCandidateContent(response) {
+    return response?.candidates?.[0]?.content || null;
+}
+
+function createGeminiResult(response) {
+    return {
+        text: typeof response?.text === 'string' ? response.text : null,
+        content: getFirstCandidateContent(response),
+        usageMetadata: response?.usageMetadata || null
+    };
+}
+
 /**
  * Gets a content generation response from Gemini.
  * @param {object[]} contents - The array of content parts (user/model history).
- * @param {object} options - Override defaults (systemInstruction, temperature, etc).
- * @returns {Promise<string|null>}
+ * @param {object} options - Override defaults (systemInstruction, safetySettings, etc).
+ * @returns {Promise<object>}
  */
-async function getGeminiCompletion(contents, options = {}) {
+async function getGeminiCompletionResult(contents, options = {}) {
     if (!geminiClient) {
         throw new Error("Gemini client is not initialized. Check your GEMINI_API_KEY.");
     }
 
-    const defaultOptions = {
-        temperature: config.geminiTemperature,
-        maxOutputTokens: 800,
-        thinkingConfig: {
-            thinkingLevel: 'minimal'
-        }
-    };
-
-    const finalOptions = { ...defaultOptions, ...options };
-    const safetySettings = finalOptions.safetySettings;
-    delete finalOptions.safetySettings; 
-
-    const requestPayload = {
-        model: config.geminiModelName, // Aquí debe estar jalando tu 'gemini-3-flash-preview' del .env
-        contents: contents,
-        config: finalOptions
-    };
-
-    if (safetySettings) {
-        requestPayload.safetySettings = safetySettings;
-    }
+    const requestPayload = buildGeminiRequestPayload(contents, options);
 
     // ==========================================
-    // 🛡️ SISTEMA DE SUPERVIVENCIA (Exponential Backoff)
+    // SISTEMA DE SUPERVIVENCIA (Exponential Backoff)
     // ==========================================
     const MAX_RETRIES = 3;
-    let delayMs = 2000; // Empezamos esperando 2 segundos
+    let delayMs = 2000;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            // Intentamos contactar a la API
             const response = await geminiClient.models.generateContent(requestPayload);
-            return response.text;
+            const result = createGeminiResult(response);
+
+            if (result.usageMetadata) {
+                logger.debug({ usageMetadata: result.usageMetadata }, 'Gemini usage metadata');
+            }
+
+            return result;
 
         } catch (error) {
-            // Buscamos las firmas clásicas de un servidor saturado (Código 503 o 429)
-            const isTransientError = 
-                error.status === 503 || 
-                error.status === 429 || 
+            const isTransientError =
+                error.status === 503 ||
+                error.status === 429 ||
                 (error.message && (error.message.toLowerCase().includes('overloaded') || error.message.includes('503') || error.message.includes('429')));
 
             if (isTransientError && attempt < MAX_RETRIES) {
-                console.log(`\x1b[33m[⚠️ API SATURADA]\x1b[0m Gemini está ocupado. Reintento ${attempt}/${MAX_RETRIES} en ${delayMs/1000}s...`);
-                
-                // Pausamos la ejecución por 'delayMs' milisegundos
+                console.log(`\x1b[33m[API SATURADA]\x1b[0m Gemini esta ocupado. Reintento ${attempt}/${MAX_RETRIES} en ${delayMs / 1000}s...`);
+
                 await new Promise(resolve => setTimeout(resolve, delayMs));
-                
-                // Duplicamos el tiempo de espera para el siguiente intento (2s -> 4s -> 8s)
-                delayMs *= 2; 
-                continue; // Volvemos a iniciar el ciclo for
+                delayMs *= 2;
+                continue;
             }
 
-            // Si el error es otra cosa (ej. llave inválida) o se nos acabaron los intentos, lanzamos el error real
             logger.error({ err: error, attempt }, 'Failed to get completion from Gemini after retries');
             throw error;
         }
     }
 }
 
+async function getGeminiCompletion(contents, options = {}) {
+    const result = await getGeminiCompletionResult(contents, options);
+    return result.text;
+}
+
 module.exports = {
+    buildGeminiRequestPayload,
+    createGeminiResult,
     getGeminiCompletion,
+    getGeminiCompletionResult,
     geminiClient
 };

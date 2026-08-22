@@ -15,14 +15,21 @@ class ConversationContext {
    * @param {string} contactId 
    * @param {string} role "user" or "assistant"
    * @param {string} content message content
+   * @param {object} metadata optional provider-specific metadata
    */
-  addMessage(contactId, role, content) {
+  addMessage(contactId, role, content, metadata = {}) {
     if (!this.buffer.has(contactId)) {
       this.buffer.set(contactId, []);
     }
 
     const messages = this.buffer.get(contactId);
-    messages.push({ role, content });
+    const message = { role, content };
+
+    if (metadata.geminiContent) {
+      message.geminiContent = metadata.geminiContent;
+    }
+
+    messages.push(message);
 
     // Keep only the last MAX_MESSAGES
     if (messages.length > this.MAX_MESSAGES) {

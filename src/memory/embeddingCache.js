@@ -49,6 +49,15 @@ class EmbeddingCache {
     this.cache[hash] = embedding;
     this._saveCache();
   }
+
+  setMany(entries) {
+    for (const { text, embedding } of entries) {
+      const hash = this._hashText(text);
+      this.cache[hash] = embedding;
+    }
+
+    this._saveCache();
+  }
 }
 
 module.exports = new EmbeddingCache();

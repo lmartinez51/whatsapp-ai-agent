@@ -6,29 +6,37 @@ AI'm Camila is an advanced WhatsApp agent designed to simulate a natural, contex
 
 ## ✨ Core Features
 
-* **Dual-LLM Swarm Architecture**: Hot-swap seamlessly between OpenAI (GPT-5.4-nano) and Google Gemini (3.1 Flash) at runtime. The system uses a microservices approach where OpenAI (via the modern Responses API) acts as a high-speed intent classifier and memory router in the background, while the active LLM drives the conversational persona.
+* **Dual-LLM Swarm Architecture**: Hot-swap seamlessly between OpenAI (GPT-4o / GPT-5-series) and Google Gemini (e.g. `gemini-3.5-flash`) at runtime with support for configurable thinking budgets and model content caching. The system uses a microservices approach where OpenAI acts as a high-speed intent classifier and memory router in the background, while the active LLM drives the conversational persona.
 * **True Multimodality (Nervio Óptico & Oído Biónico)**: Native support for processing images, stickers, and **voice notes**. The engine intercepts media, converts it to Base64, and feeds it directly to the active LLM. Gemini can natively "listen" to audio tone and "see" visual context, while the OpenAI fallback gracefully handles media state without crashing.
 * **Smart Message Debouncing**: A built-in 7-second queue system groups rapid-fire messages into a single cohesive block, preventing LLM race conditions, mimicking human reading speeds, and optimizing API costs.
 * **Active Listening Protocol**: The agent understands human conversational flow. It detects storytelling or incomplete thoughts (e.g., "Guess what...") and responds with natural continuers (e.g., "👀", "👂🏻") instead of interrupting with full paragraphs.
 * **Advanced Wizard of Oz Mode**: Seamlessly take over the chat. Manual texts, *images, and voice notes* sent from the host phone are silently injected into the agent's context memory, allowing the AI to adapt to your real-world interventions without breaking character or missing a beat.
-* **Native Sticker Interceptor**: Conversations are more expressive! When the LLM outputs `[STICKER: exact_name]`, the engine intercepts the tag and natively sends the corresponding local `.webp` file to the chat.
+* **Multi-Agent Disguise Manager**: Automated profile avatar, "about" bio, and WhatsApp Stories publisher for multi-agent switching (e.g., Camila vs. Lorenzo) with built-in cache management and error isolation.
+* **Hardened Sticker Pipeline**: Safe sticker naming and resolution utility (`stickerUtils`) preventing directory traversal, with instant sticker tagging (`[STICKER: exact_name]`) and sticker capture commands.
+* **Automated Syntax Check & Test Suite**: Built-in test suite using Node's native test runner (`npm test`) and syntax validation (`npm run check`) for zero-dependency test verification.
 * **Professional Bilingual Documentation**: Built with maintainability in mind. The codebase strictly adheres to an American English standard for JSDoc and architectural documentation, while utilizing Spanish for intuitive inline logic comments.
 
 ## 🚀 Installation & Setup
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/your-username/whatsapp-ai-agent.git](https://github.com/your-username/whatsapp-ai-agent.git)
+    git clone https://github.com/your-username/whatsapp-ai-agent.git
     cd whatsapp-ai-agent
     ```
 
 2.  **Install dependencies:**
     Ensure you have Node.js installed, then run:
     ```bash
-    npm install whatsapp-web.js @google/genai dotenv openai
+    npm install
     ```
 
-3.  **Authentication:**
+3.  **Run tests & checks:**
+    ```bash
+    npm run check
+    npm test
+    ```
+
+4.  **Authentication:**
     On the first run, the agent will generate a QR code in the terminal. Scan it with your WhatsApp mobile app (Linked Devices) to authenticate the session.
 
 ## ⚙️ Configuration (.env)
@@ -45,3 +53,7 @@ MASTER_NUMBER=5215512345678@c.us
 
 # Active LLM Selection (Choose 'openai' or 'gemini')
 ACTIVE_LLM=gemini
+
+# Active Persona / Disguise ('camila' or 'lorenzo')
+ACTIVE_AGENT=camila
+```
