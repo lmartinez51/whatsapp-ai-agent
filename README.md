@@ -57,3 +57,59 @@ ACTIVE_LLM=gemini
 # Active Persona / Disguise ('camila' or 'lorenzo')
 ACTIVE_AGENT=camila
 ```
+
+## 🕹️ Running the Application
+
+### Option 1: Convenience PowerShell Scripts (Recommended on Windows)
+
+The `scripts/` directory includes helper scripts to manage the complete bot runtime, ChromaDB background server, and logs:
+
+* **Start Bot & ChromaDB:**
+  ```powershell
+  # Launch with default agent defined in .env
+  .\scripts\start-chatbot.ps1
+
+  # Launch specifying an agent persona override
+  .\scripts\start-chatbot.ps1 -Agent camila
+  .\scripts\start-chatbot.ps1 -Agent lorenzo
+  ```
+  *What it does:*
+  - Checks if ChromaDB is running on port 8000; if not, launches it in the background with redirected standard and error streams to `logs/`.
+  - Injects the active agent environment variable (`$env:ACTIVE_AGENT`).
+  - Launches the Node.js application in an interactive terminal window.
+
+* **Stop Bot & ChromaDB:**
+  ```powershell
+  .\scripts\stop-chatbot.ps1
+  ```
+  *Terminates active Node and ChromaDB processes and clears the story visual cache.*
+
+* **Auto-Restart Watchdog (Continuous Monitoring):**
+  ```powershell
+  .\scripts\monitor-chatbot.ps1
+  ```
+  *Monitors the Node process every 10 seconds and automatically restarts it if it crashes.*
+
+---
+
+### Option 2: Direct NPM Commands
+
+You can also run individual tasks directly using Node / NPM:
+
+```bash
+# Start the WhatsApp agent directly
+npm start
+
+# Ingest and analyze WhatsApp export files to generate personality profile
+npm run ingest "Your WhatsApp Name"
+
+# Build ChromaDB vector embeddings from chat history
+npm run embeddings "Your WhatsApp Name"
+
+# Validate syntax across all JavaScript files
+npm run check
+
+# Run the automated unit tests
+npm test
+```
+
