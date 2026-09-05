@@ -30,12 +30,122 @@ class MessageProcessor {
         }, this.DEBOUNCE_TIME);
     }
 
+    async _downloadMediaSafely(message) {
+        if (!message) return undefined;
+
+        // 1. Normalización preventiva de ID: rescatamos _serialized si viene ofuscado en $1 o en _data
+        if (message.id && !message.id._serialized) {
+            const rawSerialized = message.id.$1 || message._data?.id?._serialized || message._data?.id?.$1;
+            if (rawSerialized) {
+                message.id._serialized = rawSerialized;
+            } else if (message.id.remote && message.id.id) {
+                message.id._serialized = `${message.id.fromMe ? 'true' : 'false'}_${message.id.remote}_${message.id.id}`;
+            }
+        }
+
+        // 2. Intento 1: API estándar de whatsapp-web.js
+        try {
+            const media = await message.downloadMedia();
+            if (media && media.data) {
+                return media;
+            }
+        } catch (downloadErr) {
+            logger.debug({ err: downloadErr.message || downloadErr }, 'Standard downloadMedia failed; attempting direct browser decrypt fallback');
+        }
+
+        // 3. Intento 2: Fallback directo de desencriptación en Puppeteer
+        // Si el lookup en la colección de WhatsApp Web falló (común en contactos @lid o cambios $1),
+        // desencriptamos directamente usando los metadatos multimedia que ya residen en message._data
+        try {
+            const pupPage = message.client?.pupPage;
+            if (!pupPage) return undefined;
+
+            const mediaMetadata = {
+                directPath: message.directPath || message._data?.directPath,
+                encFilehash: message.encFilehash || message._data?.encFilehash,
+                filehash: message.filehash || message._data?.filehash,
+                mediaKey: message.mediaKey || message._data?.mediaKey,
+                mediaKeyTimestamp: message.mediaKeyTimestamp || message._data?.mediaKeyTimestamp,
+                type: message.type || message._data?.type || 'image',
+                mimetype: message._data?.mimetype || (message.type === 'image' ? 'image/jpeg' : 'application/octet-stream'),
+                filename: message._data?.filename || null,
+                filesize: message._data?.size || 0,
+                msgId: message.id?._serialized || message.id?.$1 || message._data?.id?.$1
+            };
+
+            if (!mediaMetadata.directPath || !mediaMetadata.mediaKey) {
+                return undefined;
+            }
+
+            const rawResult = await pupPage.evaluate(async (meta) => {
+                try {
+                    // Si el mensaje está en memoria de la UI y necesita resolver el stage
+                    if (window.require && meta.msgId) {
+                        try {
+                            const MsgCollection = window.require('WAWebCollections')?.Msg;
+                            const msgModel = MsgCollection?.get(meta.msgId);
+                            if (msgModel && msgModel.mediaData && msgModel.mediaData.mediaStage !== 'RESOLVED') {
+                                await msgModel.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+                            }
+                        } catch (_) {}
+                    }
+
+                    const downloadManager = window.require('WAWebDownloadManager')?.downloadManager;
+                    if (!downloadManager || !downloadManager.downloadAndMaybeDecrypt) {
+                        return null;
+                    }
+
+                    const mockQpl = {
+                        addAnnotations: function () { return this; },
+                        addPoint: function () { return this; }
+                    };
+
+                    const decryptedMedia = await downloadManager.downloadAndMaybeDecrypt({
+                        directPath: meta.directPath,
+                        encFilehash: meta.encFilehash,
+                        filehash: meta.filehash,
+                        mediaKey: meta.mediaKey,
+                        mediaKeyTimestamp: meta.mediaKeyTimestamp,
+                        type: meta.type,
+                        signal: new AbortController().signal,
+                        downloadQpl: mockQpl
+                    });
+
+                    if (!decryptedMedia) return null;
+
+                    const data = await window.WWebJS.arrayBufferToBase64Async(decryptedMedia);
+                    return {
+                        data,
+                        mimetype: meta.mimetype,
+                        filename: meta.filename,
+                        filesize: meta.filesize
+                    };
+                } catch (evalErr) {
+                    return { error: evalErr.message || String(evalErr) };
+                }
+            }, mediaMetadata);
+
+            if (rawResult && rawResult.data) {
+                return new MessageMedia(
+                    rawResult.mimetype,
+                    rawResult.data,
+                    rawResult.filename,
+                    rawResult.filesize
+                );
+            }
+        } catch (fallbackErr) {
+            logger.debug({ err: fallbackErr.message || fallbackErr }, 'Direct browser decrypt fallback failed');
+        }
+
+        return undefined;
+    }
+
     async _downloadMediaWithTimeout(message, timeoutMs, timeoutMessage) {
         let timeoutId;
 
         try {
             return await Promise.race([
-                message.downloadMedia(),
+                this._downloadMediaSafely(message),
                 new Promise((_, reject) => {
                     timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
                 })
@@ -251,10 +361,21 @@ class MessageProcessor {
             return; 
         }
 
-        const contact = await message.getContact();
-        const realId = contact.id._serialized.endsWith('@c.us') ? contact.id._serialized : `${contact.id.user}@c.us`;
+        let contact = null;
+        try {
+            contact = await message.getContact();
+        } catch (contactErr) {
+            logger.warn({ err: contactErr.message || contactErr }, 'Failed to fetch contact via getContact');
+        }
 
-        if (!realId.endsWith('@c.us')) return;
+        const contactSerialized = contact?.id?._serialized || contact?.id?.$1 || (typeof message.from === 'string' ? message.from : '');
+        let realId = contactSerialized;
+        if (!realId.endsWith('@c.us')) {
+            const userPart = contact?.number || contact?.id?.user || (typeof message.from === 'string' ? message.from.split('@')[0] : '');
+            realId = `${userPart}@c.us`;
+        }
+
+        if (!realId.endsWith('@c.us') || realId === '@c.us') return;
 
         // 2. COMANDOS DEL JEFE - Pase Directo
         const masterNumber = process.env.MASTER_NUMBER;
@@ -325,10 +446,12 @@ class MessageProcessor {
                         console.log(`\x1b[36m[👂 OÍDO BIÓNICO]\x1b[0m Audio capturado con éxito (${media.mimetype}).`);
                     } else {
                         // El archivo venía corrupto de WhatsApp
-                        if (!textPiece) textPiece = `*(El usuario te envió un audio, pero el archivo estaba corrupto y no se pudo escuchar)*`;
+                        const failNote = `*(El usuario te envió un audio, pero el archivo no se pudo escuchar)*`;
+                        textPiece = textPiece ? `${textPiece}\n\n${failNote}` : failNote;
                     }
                 } catch (error) {
-                    if (!textPiece) textPiece = `*(El usuario intentó enviar un audio pero falló la descarga de WhatsApp)*`;
+                    const failNote = `*(El usuario intentó enviar un audio pero falló la descarga de WhatsApp)*`;
+                    textPiece = textPiece ? `${textPiece}\n\n${failNote}` : failNote;
                     console.log(`\x1b[31m[⚠️ OÍDO BIÓNICO FALLÓ]\x1b[0m ${error.message}`);
                 }
             } else if (msg.hasMedia || msg.type === 'image' || msg.type === 'sticker') {
@@ -345,16 +468,18 @@ class MessageProcessor {
                         if (!textPiece) {
                             textPiece = msg.type === 'sticker' 
                                 ? "*(El usuario te envió este sticker gráfico)*"
-                                : "*(El usuario te envió esta imagen/audio)*";
+                                : "*(El usuario te envió esta imagen/archivo)*";
                         }
                         console.log(`\x1b[36m[👁️ NERVIO ÓPTICO]\x1b[0m Media capturada con éxito.`);
                     } else {
                         // FALLO SILENCIOSO WA: Retornó undefined pero no tiró error.
-                        if (!textPiece) textPiece = `*(El usuario te envió un ${msg.type}, pero la imagen no se pudo descargar)*`;
+                        const failNote = `*(El usuario te envió un ${msg.type}, pero la imagen no se pudo descargar de WhatsApp)*`;
+                        textPiece = textPiece ? `${textPiece}\n\n${failNote}` : failNote;
                     }
                 } catch (error) {
                     // Si tira error explícito o se agota el timeout
-                    if (!textPiece) textPiece = `*(El usuario intentó enviar un ${msg.type} pero el archivo falló)*`;
+                    const failNote = `*(El usuario intentó enviar un ${msg.type} pero el archivo falló al descargar de WhatsApp)*`;
+                    textPiece = textPiece ? `${textPiece}\n\n${failNote}` : failNote;
                     console.log(`\x1b[31m[⚠️ NERVIO ÓPTICO FALLÓ]\x1b[0m ${error.message}`);
                 }
             }
@@ -419,7 +544,8 @@ class MessageProcessor {
             await presenceManager.simulateHumanPresence(chat, realId, contactName, relationship, replyText);
 
             // Tomamos el client del último mensaje para responder
-            await this._sendReplyWithStickers(chat.id._serialized, replyText, messages[messages.length - 1].client);
+            const targetChatId = chat?.id?._serialized || chat?.id?.$1 || (typeof chat?.id === 'string' ? chat.id : null) || messages[messages.length - 1].from;
+            await this._sendReplyWithStickers(targetChatId, replyText, messages[messages.length - 1].client);
             
             const timeOut = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
             const agentName = personalityEngine.activeAgent === 'lorenzo' ? 'Lorenzo' : 'Camila';

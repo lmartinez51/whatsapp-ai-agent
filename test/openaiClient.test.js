@@ -78,3 +78,30 @@ test('getCompletion passes sanitized payload to openai.responses.create', async 
   assert.equal(capturedPayload.max_tokens, undefined);
   assert.equal(capturedPayload.max_output_tokens, 60);
 });
+
+test('sanitizeOpenAIOptions normalizes reasoning_effort and preserves reasoning object for reasoning models', () => {
+  const withReasoningEffort = sanitizeOpenAIOptions({
+    model: 'gpt-5.6-luna',
+    reasoning_effort: 'low',
+    max_output_tokens: 300
+  });
+  assert.deepEqual(withReasoningEffort.reasoning, { effort: 'low' });
+  assert.equal(withReasoningEffort.reasoning_effort, undefined);
+  assert.equal(withReasoningEffort.max_output_tokens, 300);
+
+  const withExplicitReasoning = sanitizeOpenAIOptions({
+    model: 'gpt-5.6-luna',
+    reasoning: { effort: 'low' },
+    max_output_tokens: 300
+  });
+  assert.deepEqual(withExplicitReasoning.reasoning, { effort: 'low' });
+
+  const legacyModel = sanitizeOpenAIOptions({
+    model: 'gpt-4o',
+    reasoning_effort: 'low',
+    reasoning: { effort: 'low' }
+  });
+  assert.equal(legacyModel.reasoning, undefined);
+  assert.equal(legacyModel.reasoning_effort, undefined);
+});
+

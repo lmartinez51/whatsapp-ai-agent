@@ -101,6 +101,15 @@ function sanitizeOpenAIOptions(options = {}, modelOverride) {
   if (isReasoning) {
     delete sanitized.temperature;
     delete sanitized.top_p;
+
+    // Normalize reasoning_effort into the Responses API reasoning configuration
+    if (sanitized.reasoning_effort && !sanitized.reasoning) {
+      sanitized.reasoning = { effort: sanitized.reasoning_effort };
+      delete sanitized.reasoning_effort;
+    }
+  } else {
+    delete sanitized.reasoning;
+    delete sanitized.reasoning_effort;
   }
 
   // Replace any usage of max_tokens with max_completion_tokens
@@ -140,14 +149,38 @@ async function getCompletion(messages, options = {}) {
     }
 
     // ==========================================
-    // 🛠️ MAPEADOR: De Messages a Items
+    // 🛠️ MAPEADOR: De Messages a Items (Responses API)
     // ==========================================
     const items = messages.map(msg => {
-      // Si el mensaje ya trae formato avanzado (como el arreglo multimodal de imágenes), 
-      // lo pasamos tal cual, solo le inyectamos el type: "message"
+      // 1. Jerarquía de roles: Mapear 'system' a 'developer' para mayor adherencia en modelos GPT-5
+      const role = msg.role === 'system' ? 'developer' : msg.role;
+
+      // 2. Normalizar arreglos de contenido multimodal (texto e imágenes)
+      if (Array.isArray(msg.content)) {
+        const normalizedContent = msg.content.map(part => {
+          if (!part || typeof part !== 'object') {
+            return { type: 'input_text', text: String(part || '') };
+          }
+          if (part.type === 'text') {
+            return { type: 'input_text', text: part.text || '' };
+          }
+          if (part.type === 'image_url') {
+            const rawUrl = typeof part.image_url === 'object' ? part.image_url?.url : part.image_url;
+            return { type: 'input_image', image_url: rawUrl };
+          }
+          return part;
+        });
+
+        return {
+          type: 'message',
+          role,
+          content: normalizedContent
+        };
+      }
+
       return {
-        type: "message",
-        role: msg.role,
+        type: 'message',
+        role,
         content: msg.content
       };
     });

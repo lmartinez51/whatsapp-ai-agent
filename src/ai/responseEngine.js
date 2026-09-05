@@ -35,7 +35,8 @@ class ResponseEngine {
   async _generateOpenAIResponse(messages, contactProfile) {
     try {
       return await getCompletion(messages, {
-        max_output_tokens: 80, 
+        reasoning: { effort: 'low' },
+        max_output_tokens: 300, 
         temperature: 0.75 
       });
     } catch (error) {

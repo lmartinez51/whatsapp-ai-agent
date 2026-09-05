@@ -7,14 +7,32 @@ setInterval(() => {
   processedMessages.clear();
 }, 1000 * 60 * 10);
 
+const normalizeMessageKey = (msg) => {
+  if (!msg) return;
+  if (msg.id && !msg.id._serialized) {
+    const rawSerialized = msg.id.$1 || msg._data?.id?._serialized || msg._data?.id?.$1;
+    if (rawSerialized) {
+      msg.id._serialized = rawSerialized;
+    } else if (msg.id.remote && msg.id.id) {
+      const fromMe = Boolean(msg.id.fromMe);
+      msg.id._serialized = `${fromMe}_${msg.id.remote}_${msg.id.id}`;
+    }
+  }
+  if (typeof msg.from === 'object' && msg.from !== null) {
+    msg.from = msg.from._serialized || msg.from.$1 || String(msg.from);
+  }
+};
+
 const attachListeners = (client) => {
   // Sonda para cualquier mensaje creado o recibido
   client.on('message_create', (msg) => {
     if (msg.fromMe) return; // evitar eco propio en consola
+    normalizeMessageKey(msg);
     console.log(`\x1b[36m[SONDA RAW]\x1b[0m Tipo: ${msg.type} | From: ${msg.from} | Body: "${msg.body}" | Age: ${Math.round(Date.now() / 1000 - msg.timestamp)}s`);
   });
 
   client.on('message', async (message) => {
+    normalizeMessageKey(message);
     console.log(`\x1b[32m[EVENTO MESSAGE]\x1b[0m ID: ${message.id?._serialized} | From: ${message.from} | Type: ${message.type}`);
 
     try {

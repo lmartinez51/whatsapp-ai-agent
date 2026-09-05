@@ -165,7 +165,8 @@ class MemoryIngestionManager {
       } else {
         rawText = await openaiClient.getCompletion([{ role: 'system', content: prompt }], {
           temperature: 0.1,
-          max_output_tokens: 80,
+          reasoning: { effort: 'low' },
+          max_output_tokens: 300,
           response_format: { type: "json_object" }
         });
       }

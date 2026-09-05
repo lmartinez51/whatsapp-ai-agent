@@ -14,6 +14,11 @@ const initWhatsAppClient = () => {
   wappClient = new Client({
     authStrategy: new LocalAuth({ dataPath: 'data/whatsapp_auth' }),
     authTimeoutMs: 60000,
+    webVersionCache: {
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1042650569-alpha.html',
+      strict: false
+    },
     puppeteer: {
       headless: 'new',
       navigationTimeout: 60000,

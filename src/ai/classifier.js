@@ -135,7 +135,8 @@ Set "requires_human": false for normal social behavior:
 
       const responseText = await openaiClient.getCompletion(messages, {
         ...smallOptions,
-        max_output_tokens: 120,
+        reasoning: { effort: 'low' },
+        max_output_tokens: 250,
         response_format: { type: "json_object" }
       });
 
