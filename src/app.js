@@ -5,6 +5,8 @@
  * @description A high-level WhatsApp AI assistant architecture featuring a Dual-LLM Strategy Pattern (OpenAI/Gemini) and a native sticker interceptor pipeline.
  */
 
+require('dotenv').config({ override: true });
+
 const logger = require('./utils/logger');
 const { initWhatsAppClient } = require('./whatsapp/client');
 const memoryIngestionManager = require('./memory/memoryIngestionManager');

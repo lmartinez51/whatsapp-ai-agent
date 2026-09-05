@@ -1,87 +1,83 @@
 const logger = require('../utils/logger');
 const messageProcessor = require('../pipeline/messageProcessor');
 
-// Store processed message IDs
 const processedMessages = new Set();
 
-/**
- * Attaches event listeners for incoming WhatsApp messages.
- * @param {import('whatsapp-web.js').Client} client
- */
+setInterval(() => {
+  processedMessages.clear();
+}, 1000 * 60 * 10);
+
 const attachListeners = (client) => {
-
-  // Clean processed IDs periodically to avoid memory growth
-  setInterval(() => {
-    processedMessages.clear();
-    // logger.debug('Processed message cache cleared'); // Silenciado para limpieza
-  }, 1000 * 60 * 10); // every 10 minutes
-
+  // Sonda para cualquier mensaje creado o recibido
+  client.on('message_create', (msg) => {
+    if (msg.fromMe) return; // evitar eco propio en consola
+    console.log(`\x1b[36m[SONDA RAW]\x1b[0m Tipo: ${msg.type} | From: ${msg.from} | Body: "${msg.body}" | Age: ${Math.round(Date.now() / 1000 - msg.timestamp)}s`);
+  });
 
   client.on('message', async (message) => {
+    console.log(`\x1b[32m[EVENTO MESSAGE]\x1b[0m ID: ${message.id?._serialized} | From: ${message.from} | Type: ${message.type}`);
+
     try {
       const messageId = message.id?._serialized;
-
-      // 1. Duplicate protection
       if (messageId && processedMessages.has(messageId)) {
+        console.log(`[FILTRO] Descartado por duplicado: ${messageId}`);
         return;
       }
-      if (messageId) {
-        processedMessages.add(messageId);
-      }
+      if (messageId) processedMessages.add(messageId);
 
-      // 2. 🛡️ ESCUDO DE PROTOCOLO (Anti-Spam de Canales y Status)
-      if (message.from === 'status@broadcast' || message.from.includes('@newsletter')) {
-        return;
-      }
-
-      // 3. Ignore own messages
-      if (message.fromMe) {
+      // Escudo básico contra estados y newsletters únicamente
+      if (!message.from || message.from === 'status@broadcast' || message.from.includes('@newsletter')) {
+        console.log(`[FILTRO] Descartado por broadcast/newsletter: ${message.from}`);
         return;
       }
 
-      // 4. Ignore old messages (replay protection)
+      if (message.fromMe) return;
+
       const messageAge = Date.now() / 1000 - message.timestamp;
-      if (messageAge > 60) {
+      if (messageAge > 120) {
+        console.log(`[FILTRO] Descartado por antigüedad (${Math.round(messageAge)}s > 120s)`);
         return;
       }
 
-      // ==========================================
-      // 5. 🛡️ FILTRO DE TIPO DE MENSAJE (¡PUERTAS ABIERTAS!)
-      // ==========================================
-      
-      // Lista VIP de lo que SÍ vamos a procesar
+      if (message.from.endsWith('@g.us')) {
+        console.log(`[FILTRO] Descartado por ser grupo: ${message.from}`);
+        return;
+      }
+
       const allowedTypes = ['chat', 'image', 'sticker', 'audio', 'ptt'];
-      
-      // Si el tipo de mensaje NO está en nuestra lista VIP, lo ignoramos.
       if (!allowedTypes.includes(message.type)) {
-        // console.log(`[🛡️ FILTRO] Bloqueando tipo no soportado: ${message.type}`);
+        console.log(`[FILTRO] Descartado por tipo no permitido: ${message.type}`);
         return;
       }
 
       const text = (message.body || '').trim();
-      // Si no trae texto Y TAMPOCO trae un archivo adjunto (audio/foto), entonces sí mátalo
-      if (!text && !message.hasMedia) return;
-
-      // 6. OBTENER CHAT
-      const chat = await message.getChat();
-
-      // 7. Ignore group chats
-      if (chat.isGroup) {
+      if (!text && !message.hasMedia) {
+        console.log('[FILTRO] Descartado por no tener texto ni media');
         return;
       }
 
-      // El log de "Incoming message" ya lo hace el MessageProcessor de forma bonita, 
-      // así que aquí ya no necesitamos imprimir nada para evitar duplicidad.
+      let chat;
+      try {
+        chat = await message.getChat();
+      } catch (chatError) {
+        console.log(`[FALLBACK] getChat() falló: ${chatError.message}. Creando chat mock.`);
+        chat = {
+          id: { _serialized: message.from },
+          isGroup: false,
+          name: message._data?.notifyName || 'Contacto',
+          sendMessage: (content, options) => client.sendMessage(message.from, content, options)
+        };
+      }
 
-      // 8. Pasar al procesador principal
+      if (chat.isGroup) return;
+
+      console.log(`\x1b[35m[PIPELINE]\x1b[0m Enviando mensaje a messageProcessor...`);
       await messageProcessor.processIncomingMessage(message, chat);
 
     } catch (error) {
-      if (message.from?.includes('@newsletter')) return;
-
       logger.error(
         { err: error, msgId: message.id?._serialized },
-        'Error fatal en el listener de mensajes'
+        'Error capturado en el listener'
       );
     }
   });

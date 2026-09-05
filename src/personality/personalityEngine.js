@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
-require('dotenv').config();
+require('dotenv').config({ override: true });
 const { buildLorenzoPrompt, buildCamilaPrompt, getStickerInstruction } = require('../prompts');
 
 /**

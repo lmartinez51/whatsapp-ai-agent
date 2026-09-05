@@ -71,10 +71,10 @@ async function getGeminiCompletionResult(contents, options = {}) {
     // ==========================================
     // SISTEMA DE SUPERVIVENCIA (Exponential Backoff)
     // ==========================================
-    const MAX_RETRIES = 3;
-    let delayMs = 2000;
+    const RETRY_DELAYS_MS = [2000, 4000, 8000, 30000, 60000];
+    const MAX_RETRIES = RETRY_DELAYS_MS.length;
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
         try {
             const response = await geminiClient.models.generateContent(requestPayload);
             const result = createGeminiResult(response);
@@ -89,13 +89,21 @@ async function getGeminiCompletionResult(contents, options = {}) {
             const isTransientError =
                 error.status === 503 ||
                 error.status === 429 ||
-                (error.message && (error.message.toLowerCase().includes('overloaded') || error.message.includes('503') || error.message.includes('429')));
+                error.code === 503 ||
+                error.code === 429 ||
+                (error.message && (
+                    error.message.toLowerCase().includes('overloaded') ||
+                    error.message.includes('503') ||
+                    error.message.includes('429') ||
+                    error.message.includes('RESOURCE_EXHAUSTED') ||
+                    error.message.includes('UNAVAILABLE')
+                ));
 
-            if (isTransientError && attempt < MAX_RETRIES) {
+            if (isTransientError && attempt <= MAX_RETRIES) {
+                const delayMs = RETRY_DELAYS_MS[attempt - 1];
                 console.log(`\x1b[33m[API SATURADA]\x1b[0m Gemini esta ocupado. Reintento ${attempt}/${MAX_RETRIES} en ${delayMs / 1000}s...`);
 
                 await new Promise(resolve => setTimeout(resolve, delayMs));
-                delayMs *= 2;
                 continue;
             }
 

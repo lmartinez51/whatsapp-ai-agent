@@ -390,7 +390,9 @@ class MessageProcessor {
             const combinedMemoriesText = await semanticMemory.retrieveMemories(realId, finalCombinedText, 6);
             const recentContext = conversationContext.getContext(realId).slice(-10);
 
-            let finalMemories = combinedMemoriesText;
+            let finalMemories = Array.isArray(combinedMemoriesText)
+                ? (combinedMemoriesText.length > 0 ? combinedMemoriesText.join('\n') : "")
+                : (combinedMemoriesText || "");
             const masterNumber = process.env.MASTER_NUMBER;
             
             if (realId === masterNumber) {

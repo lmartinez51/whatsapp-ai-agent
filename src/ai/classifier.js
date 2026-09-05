@@ -1,4 +1,4 @@
-const { getCompletion } = require('./openaiClient');
+const openaiClient = require('./openaiClient');
 const personalityEngine = require('../personality/personalityEngine');
 const fastIntentRouter = require('./fastIntentRouter');
 const logger = require('../utils/logger');
@@ -9,6 +9,7 @@ class Classifier {
     this.allowedIntents = new Set([
       "greeting",           // Saludos ("Hola", "Qué rollo", "Buenos días")
       "smalltalk",          // Plática trivial o chisme ("Ando aburrido", "Jaja sí")
+      "chat",               // Conversación general / chat casual
       "informal_plan",      // Organizar salidas, invitar a comer, chelear ("Vamos a Hooters", "Fuga")
       "information_request",// Preguntas directas ("¿A qué hora entras a trabajar?", "¿Dónde andas?")
       "rant_venting",       // Quejarse de la vida/trabajo ("Estoy hasta la chingada de mi jefe")
@@ -132,7 +133,7 @@ Set "requires_human": false for normal social behavior:
 
       const smallOptions = personalityEngine.getSmallClassificationOptions();
 
-      const responseText = await getCompletion(messages, {
+      const responseText = await openaiClient.getCompletion(messages, {
         ...smallOptions,
         max_output_tokens: 120,
         response_format: { type: "json_object" }
@@ -162,14 +163,19 @@ Set "requires_human": false for normal social behavior:
       return validated;
 
     } catch (error) {
-      logger.error({ err: error, messageText }, "Classifier evaluation failed");
+      logger.warn(
+        { err: error.message || error, messageText },
+        "Classifier evaluation failed; using safe conversational fallback classification"
+      );
 
-      // Fallback seguro: Si algo falla, asume que no es urgente pero requiere que el humano decida
+      // Fallback seguro: Si ocurre un error de API o red, no bloquear mensajes seguros con requires_human: true
       return {
-        intent: "other",
-        importance: 0.5,
-        complexity: 0.5,
-        requires_human: true 
+        intent: "chat",
+        confidence: 0.7,
+        importance: 0.2,
+        complexity: 0.2,
+        requires_human: false,
+        isFallback: true
       };
     }
   } 

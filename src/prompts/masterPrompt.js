@@ -30,7 +30,7 @@ Relación con el dueño del teléfono: ${contactProfile?.relationship || "descon
 ${topicsString}
 </contact_profile>
 ${interactionsString ? `\n<recent_interactions_summary>\nBrief summaries of past chats. Use ONLY for context, do not randomly bring them up:\n${interactionsString}\n</recent_interactions_summary>` : ''}
-${semanticMemories ? `\n<semantic_memories>\nUse ONLY if they add direct value to the current conversation:\n${semanticMemories}\n</semantic_memories>` : ''}
+${(Array.isArray(semanticMemories) ? semanticMemories.length > 0 : Boolean(semanticMemories && semanticMemories.trim())) ? `\n<semantic_memories>\nUse ONLY if they add direct value to the current conversation:\n${Array.isArray(semanticMemories) ? semanticMemories.join('\n') : semanticMemories}\n</semantic_memories>` : ''}
 </dynamic_context>
 
 <output_contract>

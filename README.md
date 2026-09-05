@@ -7,13 +7,15 @@ AI'm Camila is an advanced WhatsApp agent designed to simulate a natural, contex
 ## ✨ Core Features
 
 * **Dual-LLM Swarm Architecture**: Hot-swap seamlessly between OpenAI (GPT-4o / GPT-5-series) and Google Gemini (e.g. `gemini-3.5-flash`) at runtime with support for configurable thinking budgets and model content caching. The system uses a microservices approach where OpenAI acts as a high-speed intent classifier and memory router in the background, while the active LLM drives the conversational persona.
+* **Reasoning Model Compatibility Layer**: Intelligent payload sanitization and translation supporting cutting-edge OpenAI architectures (such as GPT-5, o1, and o3) alongside standard models, automatically standardizing token limits and sampling parameters for the Responses API.
 * **True Multimodality (Nervio Óptico & Oído Biónico)**: Native support for processing images, stickers, and **voice notes**. The engine intercepts media, converts it to Base64, and feeds it directly to the active LLM. Gemini can natively "listen" to audio tone and "see" visual context, while the OpenAI fallback gracefully handles media state without crashing.
 * **Smart Message Debouncing**: A built-in 7-second queue system groups rapid-fire messages into a single cohesive block, preventing LLM race conditions, mimicking human reading speeds, and optimizing API costs.
 * **Active Listening Protocol**: The agent understands human conversational flow. It detects storytelling or incomplete thoughts (e.g., "Guess what...") and responds with natural continuers (e.g., "👀", "👂🏻") instead of interrupting with full paragraphs.
 * **Advanced Wizard of Oz Mode**: Seamlessly take over the chat. Manual texts, *images, and voice notes* sent from the host phone are silently injected into the agent's context memory, allowing the AI to adapt to your real-world interventions without breaking character or missing a beat.
 * **Multi-Agent Disguise Manager**: Automated profile avatar, "about" bio, and WhatsApp Stories publisher for multi-agent switching (e.g., Camila vs. Lorenzo) with built-in cache management and error isolation.
+* **Resilient Fail-Safe & Emergency Fallback**: Graceful degradation across all subsystems (semantic memory ChromaDB errors, API 503/429 stepped backoff, safe classifier fallbacks, and persona-aligned emergency replies when external services are unreachable).
 * **Hardened Sticker Pipeline**: Safe sticker naming and resolution utility (`stickerUtils`) preventing directory traversal, with instant sticker tagging (`[STICKER: exact_name]`) and sticker capture commands.
-* **Automated Syntax Check & Test Suite**: Built-in test suite using Node's native test runner (`npm test`) and syntax validation (`npm run check`) for zero-dependency test verification.
+* **Automated Syntax Check & Comprehensive Test Suite**: Full unit test coverage (native `node:test`) verifying Gemini retries, classifier fallbacks, reasoning model payload sanitization, semantic memory graceful degradation, and syntax validation (`npm run check`).
 * **Professional Bilingual Documentation**: Built with maintainability in mind. The codebase strictly adheres to an American English standard for JSDoc and architectural documentation, while utilizing Spanish for intuitive inline logic comments.
 
 ## 🚀 Installation & Setup

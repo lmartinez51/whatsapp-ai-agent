@@ -5,7 +5,8 @@ const logger = require('../utils/logger');
 const vectorStore = require('./vectorStore');
 const semanticMemory = require('./semanticMemory');
 const contactMemory = require('./contactMemory');
-const { getCompletion } = require('../ai/openaiClient');
+const openaiClient = require('../ai/openaiClient');
+const geminiClient = require('../ai/geminiClient');
 
 const STATE_FILE_PATH = path.join(__dirname, '../../data/memory_state.json');
 const STATE_FILE_TMP = path.join(__dirname, '../../data/memory_state.tmp.json');
@@ -149,17 +150,52 @@ class MemoryIngestionManager {
       </conversation>
     `.trim();
 
+    let rawText;
     try {
-      const response = await getCompletion([{ role: 'system', content: prompt }], {
-        temperature: 0.1,
-        max_output_tokens: 80,
-        response_format: { type: "json_object" }
-      });
+      const activeLLM = (process.env.ACTIVE_LLM || 'openai').toLowerCase();
 
-      const cleanJson = response.replace(/```json/gi, '').replace(/```/g, '').trim();
-      return JSON.parse(cleanJson);
+      if (activeLLM === 'gemini') {
+        rawText = await geminiClient.getGeminiCompletion(
+          [{ role: 'user', parts: [{ text: prompt }] }],
+          {
+            responseMimeType: 'application/json',
+            maxOutputTokens: 200
+          }
+        );
+      } else {
+        rawText = await openaiClient.getCompletion([{ role: 'system', content: prompt }], {
+          temperature: 0.1,
+          max_output_tokens: 80,
+          response_format: { type: "json_object" }
+        });
+      }
     } catch (error) {
-      logger.error({ err: error }, 'Failed to extract metadata from conversation');
+      logger.warn({ err: error.message || error }, 'Failed to call LLM for conversation metadata extraction');
+      return null;
+    }
+
+    if (!rawText || typeof rawText !== 'string' || !rawText.trim()) {
+      return null;
+    }
+
+    let cleanJson = rawText
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    const firstBrace = cleanJson.indexOf('{');
+    const lastBrace = cleanJson.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      cleanJson = cleanJson.substring(firstBrace, lastBrace + 1);
+    }
+
+    try {
+      return JSON.parse(cleanJson);
+    } catch (parseError) {
+      logger.debug(
+        { err: parseError.message, preview: cleanJson.slice(0, 100) },
+        'Truncated or invalid JSON encountered during metadata extraction; skipping gracefully.'
+      );
       return null;
     }
   }
@@ -262,7 +298,7 @@ class MemoryIngestionManager {
           }
         }
       } catch (error) {
-        logger.error({ err: error, contactId }, 'Error in background memory ingestion.');
+        logger.warn({ err: error.message || error, contactId }, 'Error in background memory ingestion (graceful degradation).');
       }
     });
 

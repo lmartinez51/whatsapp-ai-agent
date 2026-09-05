@@ -84,7 +84,7 @@ async function applyDisguise(client, activeAgent) {
           } catch (statusError) {
             // Si Meta rompe la API de Estados, lo atrapamos aquí sin crashear el bot entero
             console.log(
-              `\x1b[33m[⚠️ ADVERTENCIA DE STATUS]\x1b[0m WhatsApp actualizó su interfaz y bloqueó la subida de la historia. Camila seguirá funcionando normalmente sin historia.`,
+              `\x1b[33m[⚠️ ADVERTENCIA DE STATUS]\x1b[0m WhatsApp actualizó su interfaz y bloqueó la subida de la historia (${statusError?.message || statusError}). Camila seguirá funcionando normalmente sin historia.`,
             );
           }
         }

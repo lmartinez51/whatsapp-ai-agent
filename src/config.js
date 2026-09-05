@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
 const parseNumberEnv = (value, fallback) => {
   const parsed = Number.parseFloat(value);

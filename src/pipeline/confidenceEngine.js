@@ -8,6 +8,7 @@ class ConfidenceEngine {
     this.intentBaseConfidence = {
       greeting: 0.95,            // "Hola", "Qué rollo" -> Respuestas casi automáticas
       smalltalk: 0.95,           // Chisme o plática trivial -> Terreno seguro para el LLM
+      chat: 0.90,                // Conversación general / chat casual
       informal_plan: 0.90,       // "Vamos a pistear", "Fuga" -> Muy seguro de contestar
       information_request: 0.90, // "¿A qué hora sales?" -> Seguro, leerá el contexto
       rant_venting: 0.85,        // "Estoy hasta la madre" -> Nivel medio-alto, requiere el toque de Lorenzo
@@ -31,7 +32,7 @@ class ConfidenceEngine {
       return 0;
     }
 
-    const { intent, complexity, importance, requires_human } = classification;
+    const { intent, complexity, importance, requires_human, confidence } = classification;
 
     // Bloqueo duro inmediato basado en las reglas de escalamiento del Clasificador
     if (requires_human === true) {
@@ -40,6 +41,11 @@ class ConfidenceEngine {
         "Confidence Gate triggered: Message requires human intervention (Critical Flag)"
       );
       return 0;
+    }
+
+    // Si la clasificación incluye un puntaje de confianza explícito (p.ej. fallback seguro), respetarlo
+    if (typeof confidence === 'number' && Number.isFinite(confidence)) {
+      return Math.max(0, Math.min(1, confidence));
     }
 
     const baseConfidence = this.intentBaseConfidence[intent] ?? this.intentBaseConfidence.other;

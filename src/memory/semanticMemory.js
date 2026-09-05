@@ -1,5 +1,6 @@
 const vectorStore = require('./vectorStore');
-const { getEmbedding } = require('../ai/openaiClient');
+const openaiClient = require('../ai/openaiClient');
+const config = require('../config');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 
@@ -33,7 +34,12 @@ class SemanticMemory {
    */
   async storeMemory(contactId, messageText, type = 'message', timestamp = Date.now()) {
     try {
-      const embedding = await getEmbedding(messageText);
+      if (!config.openaiApiKey) {
+        logger.warn({ contactId }, 'OpenAI API key missing; skipping semantic memory storage.');
+        return false;
+      }
+
+      const embedding = await openaiClient.getEmbedding(messageText);
       const id = this._generateId(contactId, messageText, timestamp);
       
       await vectorStore.add(
@@ -46,7 +52,7 @@ class SemanticMemory {
       logger.debug({ contactId, type }, 'Stored new semantic memory');
       return true;
     } catch (error) {
-      logger.error({ err: error, contactId }, 'Failed to store semantic memory');
+      logger.warn({ err: error.message || error, contactId }, 'Failed to store semantic memory');
       return false;
     }
   }
@@ -61,10 +67,15 @@ class SemanticMemory {
    */
   async storeMemoriesBatch(contactId, messages, type = "message") {
     try {
+      if (!config.openaiApiKey) {
+        logger.warn({ contactId }, 'OpenAI API key missing; skipping semantic memory batch storage.');
+        return;
+      }
+
       const texts = messages.map(m => m.text);
       const timestamps = messages.map(m => m.timestamp ?? Date.now());
 
-      const embeddings = await getEmbedding(texts); 
+      const embeddings = await openaiClient.getEmbedding(texts); 
 
       const ids = texts.map((text, i) =>
         this._generateId(contactId, text, timestamps[i])
@@ -90,7 +101,7 @@ class SemanticMemory {
       );
 
     } catch (error) {
-      logger.error({ err: error, contactId }, "Failed to store semantic memory batch");
+      logger.warn({ err: error.message || error, contactId }, "Failed to store semantic memory batch");
     }
   }
 
@@ -99,12 +110,16 @@ class SemanticMemory {
    * @param {string} contactId - The WhatsApp contact ID.
    * @param {string} queryText - The search query to embed and compare against stored memories.
    * @param {number} [topK=5] - The maximum number of relevant memories to retrieve.
-   * @returns {Promise<string>} A pre-formatted string block displaying the recalled memories, or an empty string if none are found.
-   * @throws {Error} Throws internally and catches it, returning an empty string to keep the chatbot functional.
+   * @returns {Promise<Array<string>>} An array of formatted recalled memories, or an empty array if none are found or if retrieval fails.
    */
   async retrieveMemories(contactId, queryText, topK = 5) {
     try {
-      const queryEmbedding = await getEmbedding(queryText);
+      if (!config.openaiApiKey) {
+        logger.warn({ contactId }, 'OpenAI API key missing; skipping semantic memory retrieval and returning empty array.');
+        return [];
+      }
+
+      const queryEmbedding = await openaiClient.getEmbedding(queryText);
       
       const results = await vectorStore.query(
         MEMORY_COLLECTION,
@@ -115,7 +130,7 @@ class SemanticMemory {
       
       // Validamos la estructura de arreglos anidados de ChromaDB
       if (!results || !results.documents || !results.documents[0] || results.documents[0].length === 0) {
-        return ""; // Retornamos una cadena vacía para inyectar limpiamente en el prompt XML
+        return [];
       }
       
       const documents = results.documents[0];
@@ -152,11 +167,14 @@ class SemanticMemory {
         formattedMemories.push(`[${timeContext}] Mensaje: "${text}"`);
       });
 
-      return formattedMemories.join("\n");
+      return formattedMemories;
 
     } catch (error) {
-      logger.error({ err: error, contactId }, 'Failed to retrieve semantic memory');
-      return "";
+      logger.warn(
+        { err: error.message || error, contactId },
+        `Failed to retrieve semantic memories (${error.message || 'Unknown error'}). Degrading gracefully with empty array.`
+      );
+      return [];
     }
   }
 }

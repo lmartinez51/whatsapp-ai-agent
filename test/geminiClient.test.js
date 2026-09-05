@@ -1,12 +1,13 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
+const config = require('../src/config');
 const {
   buildGeminiRequestPayload,
   createGeminiResult
 } = require('../src/ai/geminiClient');
 
-test('buildGeminiRequestPayload uses Gemini 3.5 Flash with current config shape', () => {
+test('buildGeminiRequestPayload uses configured Gemini model with current config shape', () => {
   const contents = [{ role: 'user', parts: [{ text: 'Hola' }] }];
   const safetySettings = [
     {
@@ -21,7 +22,7 @@ test('buildGeminiRequestPayload uses Gemini 3.5 Flash with current config shape'
     safetySettings
   });
 
-  assert.equal(payload.model, 'gemini-3.5-flash');
+  assert.equal(payload.model, config.geminiModelName);
   assert.equal(payload.config.temperature, undefined);
   assert.equal(payload.config.topP, undefined);
   assert.equal(payload.safetySettings, undefined);
@@ -60,4 +61,42 @@ test('createGeminiResult preserves text, candidate content, and usage metadata',
   assert.equal(result.text, 'Que onda');
   assert.deepEqual(result.content, content);
   assert.deepEqual(result.usageMetadata, usageMetadata);
+});
+
+test('getGeminiCompletionResult retries on 503 and succeeds on subsequent attempt', async (t) => {
+  const geminiModule = require('../src/ai/geminiClient');
+  if (!geminiModule.geminiClient) {
+    return; // Skip if no client configured in env
+  }
+
+  const originalGenerateContent = geminiModule.geminiClient.models.generateContent;
+  const originalSetTimeout = global.setTimeout;
+  t.after(() => {
+    geminiModule.geminiClient.models.generateContent = originalGenerateContent;
+    global.setTimeout = originalSetTimeout;
+  });
+
+  // Fast-forward setTimeout in test
+  global.setTimeout = (fn) => {
+    fn();
+    return 0;
+  };
+
+  let attempts = 0;
+  geminiModule.geminiClient.models.generateContent = async () => {
+    attempts++;
+    if (attempts === 1) {
+      const err = new Error('503 UNAVAILABLE: High demand spike');
+      err.status = 503;
+      throw err;
+    }
+    return {
+      text: 'Respuesta recuperada tras reintento',
+      candidates: [{ content: { role: 'model', parts: [{ text: 'Respuesta recuperada tras reintento' }] } }]
+    };
+  };
+
+  const result = await geminiModule.getGeminiCompletionResult([{ role: 'user', parts: [{ text: 'Hola' }] }]);
+  assert.equal(attempts, 2, 'Expected generateContent to be called twice');
+  assert.equal(result.text, 'Respuesta recuperada tras reintento');
 });

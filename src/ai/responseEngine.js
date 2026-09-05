@@ -39,7 +39,7 @@ class ResponseEngine {
         temperature: 0.75 
       });
     } catch (error) {
-      logger.error({ err: error, contact: contactProfile?.name }, 'OpenAI failed to generate a reply');
+      logger.warn({ err: error.message || error, contact: contactProfile?.name }, 'OpenAI failed to generate a reply');
       return null;
     }
   }
@@ -103,9 +103,24 @@ class ResponseEngine {
       };
 
     } catch (error) {
-      logger.error({ err: error, contact: contactProfile?.name }, 'Gemini failed to generate a reply');
+      logger.warn({ err: error.message || error, contact: contactProfile?.name }, 'Gemini failed to generate a reply');
       return null;
     }
+  }
+
+  _getEmergencyFallback() {
+    const activeAgent = (process.env.ACTIVE_AGENT || personalityEngine.activeAgent || 'lorenzo').toLowerCase();
+
+    const fallbackText = activeAgent === 'camila'
+      ? "¡Chale! Se me congeló el changarro con tanta gente queriendo chisme al mismo tiempo. 🥶 Si ocupas algo urgente de Lorenzo o mío, tírame un mensajito en un ratito en lo que revive mi sistema."
+      : "¡Qué onda! Se me saturó un poco la red por acá y ando medio trabado. 🔌 Échame un mensajito en unos minutitos en lo que se descongestiona el sistema.";
+
+    return {
+      text: fallbackText,
+      confidence: 0.5,
+      isFallback: true,
+      provider: 'fallback'
+    };
   }
 
   async generateResponseResult(incomingMessage, contactProfile, semanticMemories, recentContext, mediaObject = null) {
@@ -146,9 +161,10 @@ class ResponseEngine {
       });
 
       const activeLLM = process.env.ACTIVE_LLM || 'openai';
+      let responseResult = null;
 
       if (activeLLM === 'gemini') {
-         return await this._generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile, mediaObject);
+         responseResult = await this._generateGeminiResponse(incomingMessage, recentContext, systemContent, contactProfile, mediaObject);
       } else {
          let userContent = incomingMessage;
          
@@ -179,14 +195,27 @@ class ResponseEngine {
            { role: 'user', content: userContent }
          ];
          const replyText = await this._generateOpenAIResponse(messages, contactProfile);
-         return replyText
+         responseResult = replyText
            ? { text: replyText, provider: 'openai' }
            : null;
       }
 
+      if (responseResult && responseResult.text) {
+        return responseResult;
+      }
+
+      logger.warn(
+        { contact: contactProfile?.name, activeLLM },
+        'All LLM attempts exhausted. Activating emergency fallback response.'
+      );
+      return this._getEmergencyFallback();
+
     } catch (error) {
-      logger.error({ err: error, contact: contactProfile?.name }, 'ResponseEngine failed to generate a reply');
-      return null;
+      logger.warn(
+        { err: error.message || error, contact: contactProfile?.name },
+        'ResponseEngine failed to generate a reply. Activating emergency fallback response.'
+      );
+      return this._getEmergencyFallback();
     }
   }
 
