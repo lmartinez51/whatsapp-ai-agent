@@ -7,6 +7,26 @@ const semanticMemory = require('./semanticMemory');
 const contactMemory = require('./contactMemory');
 const openaiClient = require('../ai/openaiClient');
 const geminiClient = require('../ai/geminiClient');
+const { TypeSafeClient } = require('@typesafe-ai/sdk');
+const {
+  METADATA_QUESTIONS,
+  WORTH_STORING_THRESHOLD,
+  TOPIC_LABELS,
+  TYPESAFE_MODEL,
+  buildExchangeState,
+  generatePlainTextSummary
+} = require('./metadataQuestions');
+
+let typeSafeClient = null;
+function getTypeSafeClient() {
+  if (!typeSafeClient && process.env.TYPESAFE_API_KEY) {
+    typeSafeClient = new TypeSafeClient({
+      apiKey: process.env.TYPESAFE_API_KEY,
+      defaultModel: TYPESAFE_MODEL
+    });
+  }
+  return typeSafeClient;
+}
 
 const STATE_FILE_PATH = path.join(__dirname, '../../data/memory_state.json');
 const STATE_FILE_TMP = path.join(__dirname, '../../data/memory_state.tmp.json');
@@ -124,10 +144,77 @@ class MemoryIngestionManager {
   }
 
   /**
-   * Extrae los temas y el resumen de la interacción usando el LLM.
-   * AHORA RECIBE EL AGENTE ACTIVO
+   * Extrae los temas y el resumen de la interacción usando TypeSafe System One (Jev)
+   * para clasificación de topic y compuerta de worth_storing, y el LLM activo para resumen en texto plano.
+   * Si USE_TYPESAFE_METADATA !== 'true', recurre al método legacy _extractMetadataLegacy.
    */
   async _extractMetadata(userMessage, assistantReply, activeAgent) {
+    if (process.env.USE_TYPESAFE_METADATA !== 'true') {
+      return this._extractMetadataLegacy(userMessage, assistantReply, activeAgent);
+    }
+
+    const agentName = activeAgent === 'camila' ? 'Camila' : 'Lorenzo';
+
+    try {
+      const client = getTypeSafeClient();
+      if (!client) {
+        logger.warn('TypeSafe client unavailable (missing TYPESAFE_API_KEY); failing closed for metadata extraction.');
+        return null;
+      }
+
+      // 1. Construir estado acotado
+      const state = buildExchangeState(userMessage, assistantReply, agentName);
+
+      // 2. Consulta TypeSafe Jev (un solo request, preguntas en paralelo, modelo pineado)
+      const response = await client.systemOne({
+        state,
+        questions: METADATA_QUESTIONS,
+        model: TYPESAFE_MODEL
+      });
+
+      const topicAnswer = response?.answers?.topic;
+      const worthStoringAnswer = response?.answers?.worth_storing;
+
+      if (!topicAnswer || !worthStoringAnswer) {
+        logger.warn({ response }, 'Unexpected response structure from TypeSafe System One; returning null.');
+        return null;
+      }
+
+      const topic = topicAnswer.choice;
+      const worthProb = worthStoringAnswer.noul;
+
+      // Compuerta: si no vale la pena almacenar, retornar null de inmediato (evita llamada LLM de resumen)
+      if (typeof worthProb !== 'number' || worthProb < WORTH_STORING_THRESHOLD) {
+        logger.debug(
+          { worthProb, threshold: WORTH_STORING_THRESHOLD, topic },
+          'Conversation exchange below worth_storing threshold; skipping memory profile storage.'
+        );
+        return null;
+      }
+
+      // 3. Generación de resumen neutral en texto plano con LLM activo (persona-free)
+      let summary = await generatePlainTextSummary(userMessage, assistantReply, agentName);
+
+      if (!summary) {
+        const label = TOPIC_LABELS[topic] || topic;
+        summary = `El usuario y ${agentName} hablaron sobre ${label}.`;
+      }
+
+      return {
+        topics: [topic],
+        summary
+      };
+    } catch (error) {
+      logger.warn({ err: error.message || error }, 'TypeSafe metadata extraction failed; failing closed (returning null).');
+      return null;
+    }
+  }
+
+  /**
+   * Extracción legacy vía prompt JSON y parseo manual con regex/llaves.
+   * Preservado verbatim como respaldo para rollback.
+   */
+  async _extractMetadataLegacy(userMessage, assistantReply, activeAgent) {
     const agentName = activeAgent === 'camila' ? 'Camila' : 'Lorenzo';
     
     const prompt = `

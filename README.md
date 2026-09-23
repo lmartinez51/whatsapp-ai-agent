@@ -14,6 +14,7 @@ AI'm Camila is an advanced WhatsApp agent designed to simulate a natural, contex
 * **Active Listening Protocol**: The agent understands human conversational flow. It detects storytelling or incomplete thoughts (e.g., "Guess what...") and responds with natural continuers (e.g., "👀", "👂🏻") instead of interrupting with full paragraphs.
 * **Advanced Wizard of Oz Mode**: Seamlessly take over the chat. Manual texts, *images, and voice notes* sent from the host phone are silently injected into the agent's context memory, allowing the AI to adapt to your real-world interventions without breaking character or missing a beat.
 * **Multi-Agent Disguise Manager**: Automated profile avatar, "about" bio, and WhatsApp Stories publisher for multi-agent switching (e.g., Camila vs. Lorenzo) with built-in cache management and error isolation.
+* **TypeSafe System One Memory Routing & Gating**: Grounded 16-category topic taxonomy and probabilistic worth-storing gating powered by TypeSafe Jev (`@typesafe-ai/sdk`). Filters filler or low-signal interactions before triggering LLM summaries, reducing token overhead and keeping contact memory profiles focused on high-relevance facts and preferences.
 * **Resilient Fail-Safe & Emergency Fallback**: Graceful degradation across all subsystems (semantic memory ChromaDB errors, API 503/429 stepped backoff, safe classifier fallbacks, and persona-aligned emergency replies when external services are unreachable).
 * **Hardened Sticker Pipeline**: Safe sticker naming and resolution utility (`stickerUtils`) preventing directory traversal, with instant sticker tagging (`[STICKER: exact_name]`) and sticker capture commands.
 * **Automated Syntax Check & Comprehensive Test Suite**: Full unit test coverage (native `node:test`) verifying Gemini retries, classifier fallbacks, reasoning model payload sanitization, semantic memory graceful degradation, and syntax validation (`npm run check`).
@@ -50,6 +51,12 @@ Create a `.env` file in the root of your project and configure your environment 
 # API Keys
 OPENAI_API_KEY=your_openai_api_key_here
 GEMINI_API_KEY=your_google_gemini_api_key_here
+
+# TypeSafe System One (Metadata Extraction & Gating)
+USE_TYPESAFE_METADATA=true
+TYPESAFE_API_KEY=your_typesafe_api_key_here
+TYPESAFE_MODEL=jev-1.13.0
+MEMORY_WORTH_STORING_THRESHOLD=0.55
 
 # Master Control
 MASTER_NUMBER=5215512345678@c.us
@@ -114,5 +121,8 @@ npm run check
 
 # Run the automated unit tests
 npm test
+
+# Benchmark TypeSafe System One metadata questions on conversation fixtures
+node scripts/validateMetadataQuestions.js
 ```
 

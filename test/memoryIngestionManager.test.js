@@ -5,15 +5,18 @@ const memoryIngestionManager = require('../src/memory/memoryIngestionManager');
 const geminiClient = require('../src/ai/geminiClient');
 const openaiClient = require('../src/ai/openaiClient');
 
-test('MemoryIngestionManager._extractMetadata delegates to Gemini when ACTIVE_LLM=gemini', async (t) => {
+test('MemoryIngestionManager._extractMetadata delegates to Gemini when ACTIVE_LLM=gemini (legacy)', async (t) => {
   const prevActiveLLM = process.env.ACTIVE_LLM;
+  const prevUseTypeSafe = process.env.USE_TYPESAFE_METADATA;
   const originalGetGeminiCompletion = geminiClient.getGeminiCompletion;
   t.after(() => {
     process.env.ACTIVE_LLM = prevActiveLLM;
+    process.env.USE_TYPESAFE_METADATA = prevUseTypeSafe;
     geminiClient.getGeminiCompletion = originalGetGeminiCompletion;
   });
 
   process.env.ACTIVE_LLM = 'gemini';
+  process.env.USE_TYPESAFE_METADATA = 'false';
 
   let calledGemini = false;
   geminiClient.getGeminiCompletion = async (contents, options) => {
@@ -32,13 +35,16 @@ test('MemoryIngestionManager._extractMetadata delegates to Gemini when ACTIVE_LL
 
 test('MemoryIngestionManager._extractMetadata gracefully handles LLM failures and returns null without throwing', async (t) => {
   const prevActiveLLM = process.env.ACTIVE_LLM;
+  const prevUseTypeSafe = process.env.USE_TYPESAFE_METADATA;
   const originalGetGeminiCompletion = geminiClient.getGeminiCompletion;
   t.after(() => {
     process.env.ACTIVE_LLM = prevActiveLLM;
+    process.env.USE_TYPESAFE_METADATA = prevUseTypeSafe;
     geminiClient.getGeminiCompletion = originalGetGeminiCompletion;
   });
 
   process.env.ACTIVE_LLM = 'gemini';
+  process.env.USE_TYPESAFE_METADATA = 'false';
   geminiClient.getGeminiCompletion = async () => {
     throw new Error('Gemini API connection reset');
   };
@@ -49,13 +55,16 @@ test('MemoryIngestionManager._extractMetadata gracefully handles LLM failures an
 
 test('MemoryIngestionManager._extractMetadata parses JSON wrapped in markdown code fences', async (t) => {
   const prevActiveLLM = process.env.ACTIVE_LLM;
+  const prevUseTypeSafe = process.env.USE_TYPESAFE_METADATA;
   const originalGetGeminiCompletion = geminiClient.getGeminiCompletion;
   t.after(() => {
     process.env.ACTIVE_LLM = prevActiveLLM;
+    process.env.USE_TYPESAFE_METADATA = prevUseTypeSafe;
     geminiClient.getGeminiCompletion = originalGetGeminiCompletion;
   });
 
   process.env.ACTIVE_LLM = 'gemini';
+  process.env.USE_TYPESAFE_METADATA = 'false';
   geminiClient.getGeminiCompletion = async () => {
     return '```json\n{\n  "topics": ["code fences", "formatting"],\n  "summary": "Prueba de markdown code fences"\n}\n```';
   };
@@ -68,13 +77,16 @@ test('MemoryIngestionManager._extractMetadata parses JSON wrapped in markdown co
 
 test('MemoryIngestionManager._extractMetadata returns null on empty, falsy, or whitespace-only response', async (t) => {
   const prevActiveLLM = process.env.ACTIVE_LLM;
+  const prevUseTypeSafe = process.env.USE_TYPESAFE_METADATA;
   const originalGetGeminiCompletion = geminiClient.getGeminiCompletion;
   t.after(() => {
     process.env.ACTIVE_LLM = prevActiveLLM;
+    process.env.USE_TYPESAFE_METADATA = prevUseTypeSafe;
     geminiClient.getGeminiCompletion = originalGetGeminiCompletion;
   });
 
   process.env.ACTIVE_LLM = 'gemini';
+  process.env.USE_TYPESAFE_METADATA = 'false';
 
   geminiClient.getGeminiCompletion = async () => '';
   let metadata = await memoryIngestionManager._extractMetadata('hola', 'adios', 'lorenzo');
@@ -91,16 +103,34 @@ test('MemoryIngestionManager._extractMetadata returns null on empty, falsy, or w
 
 test('MemoryIngestionManager._extractMetadata returns null cleanly on truncated or invalid JSON', async (t) => {
   const prevActiveLLM = process.env.ACTIVE_LLM;
+  const prevUseTypeSafe = process.env.USE_TYPESAFE_METADATA;
   const originalGetGeminiCompletion = geminiClient.getGeminiCompletion;
   t.after(() => {
     process.env.ACTIVE_LLM = prevActiveLLM;
+    process.env.USE_TYPESAFE_METADATA = prevUseTypeSafe;
     geminiClient.getGeminiCompletion = originalGetGeminiCompletion;
   });
 
   process.env.ACTIVE_LLM = 'gemini';
+  process.env.USE_TYPESAFE_METADATA = 'false';
 
   // Truncated JSON response simulating token exhaustion / maxOutputTokens limit
   geminiClient.getGeminiCompletion = async () => '{"topics": ["interrupted", "trunc';
   const metadata = await memoryIngestionManager._extractMetadata('hola', 'adios', 'lorenzo');
   assert.equal(metadata, null, 'Expected null on truncated JSON');
+});
+
+test('MemoryIngestionManager._extractMetadata fails closed gracefully when USE_TYPESAFE_METADATA=true and client fails', async (t) => {
+  const prevUseTypeSafe = process.env.USE_TYPESAFE_METADATA;
+  const prevKey = process.env.TYPESAFE_API_KEY;
+  t.after(() => {
+    process.env.USE_TYPESAFE_METADATA = prevUseTypeSafe;
+    process.env.TYPESAFE_API_KEY = prevKey;
+  });
+
+  process.env.USE_TYPESAFE_METADATA = 'true';
+  delete process.env.TYPESAFE_API_KEY;
+
+  const metadata = await memoryIngestionManager._extractMetadata('hola', 'adios', 'camila');
+  assert.equal(metadata, null, 'Expected null when TypeSafe client is unavailable');
 });
