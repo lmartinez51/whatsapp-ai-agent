@@ -78,6 +78,29 @@ async function getGeminiCompletionResult(contents, options = {}) {
     const RETRY_DELAYS_MS = [2000, 4000, 8000];
     const MAX_RETRIES = RETRY_DELAYS_MS.length;
 
+    // Helper para extraer status y mensaje legible sin volcar el JSON masivo de la API
+    function extractErrorInfo(err) {
+        let status = err?.status || err?.code || 500;
+        let message = err?.message || 'Unknown error';
+
+        if (typeof message === 'string' && message.trim().startsWith('{')) {
+            try {
+                const parsed = JSON.parse(message);
+                if (parsed.error) {
+                    status = parsed.error.code || status;
+                    message = parsed.error.status || parsed.error.message || message;
+                }
+            } catch (_) {}
+        }
+        // Resumen conciso si es cuota
+        if (String(status) === '429' || message.includes('RESOURCE_EXHAUSTED')) {
+            message = 'RESOURCE_EXHAUSTED (Quota exceeded)';
+        } else if (message.length > 120) {
+            message = message.substring(0, 120) + '...';
+        }
+        return { status, message };
+    }
+
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
         try {
             const response = await geminiClient.models.generateContent(requestPayload);
@@ -90,28 +113,36 @@ async function getGeminiCompletionResult(contents, options = {}) {
             return result;
 
         } catch (error) {
-            const isTransientError =
-                error.status === 503 ||
-                error.status === 429 ||
-                error.code === 503 ||
-                error.code === 429 ||
+            const { status, message } = extractErrorInfo(error);
+
+            // Si es cuota agotada (RESOURCE_EXHAUSTED / 429 cuota diaria), no sirve reintentar de inmediato
+            const isQuotaExhausted =
+                status === 429 &&
+                (error.message && (
+                    error.message.includes('Quota exceeded') ||
+                    error.message.includes('quota') ||
+                    error.message.includes('RESOURCE_EXHAUSTED')
+                ));
+
+            const isTransientError = !isQuotaExhausted && (
+                status === 503 ||
+                status === 429 ||
                 (error.message && (
                     error.message.toLowerCase().includes('overloaded') ||
-                    error.message.includes('503') ||
-                    error.message.includes('429') ||
-                    error.message.includes('RESOURCE_EXHAUSTED') ||
                     error.message.includes('UNAVAILABLE')
-                ));
+                ))
+            );
 
             if (isTransientError && attempt <= MAX_RETRIES) {
                 const delayMs = RETRY_DELAYS_MS[attempt - 1];
-                console.log(`\x1b[33m[API SATURADA]\x1b[0m Gemini esta ocupado. Reintento ${attempt}/${MAX_RETRIES} en ${delayMs / 1000}s...`);
+                console.log(`\x1b[33m[API SATURADA]\x1b[0m Gemini ocupado (Status: ${status}). Reintento ${attempt}/${MAX_RETRIES} en ${delayMs / 1000}s...`);
 
                 await new Promise(resolve => setTimeout(resolve, delayMs));
                 continue;
             }
 
-            logger.error({ err: error, attempt }, 'Failed to get completion from Gemini after retries');
+            // Log limpio y conciso en consola
+            logger.warn({ provider: 'gemini', status, message, attempt }, `[Gemini Error] Status: ${status} - ${message}`);
             throw error;
         }
     }

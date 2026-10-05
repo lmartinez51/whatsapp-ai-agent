@@ -233,14 +233,25 @@ async function getCompletion(messages, options = {}) {
   // ==========================================
   const MAX_ATTEMPTS = OPENAI_RETRY_DELAYS_MS.length + 1; // 3 total
 
+  function extractOpenAIErrorInfo(err) {
+    const status = err?.status || err?.code || 500;
+    let message = err?.message || 'Unknown error';
+    if (typeof message === 'string' && message.length > 120) {
+      message = message.substring(0, 120) + '...';
+    }
+    return { status, message };
+  }
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const response = await openai.responses.create({ input: items, ...finalOptions });
       return response.output_text;
     } catch (error) {
+      const { status, message } = extractOpenAIErrorInfo(error);
+
       // Hard errors: fail immediately — let the circuit breaker decide
       if (isHardOpenAIError(error)) {
-        logger.error({ err: error, attempt }, 'OpenAI hard error (non-retryable). Failing fast.');
+        logger.warn({ provider: 'openai', status, message, attempt }, `[OpenAI Hard Error] Status: ${status} - ${message}`);
         throw error;
       }
 
@@ -248,15 +259,15 @@ async function getCompletion(messages, options = {}) {
       if (isTransientOpenAIError(error) && attempt < MAX_ATTEMPTS) {
         const delayMs = OPENAI_RETRY_DELAYS_MS[attempt - 1];
         logger.warn(
-          { err: error.message || error, attempt, maxAttempts: MAX_ATTEMPTS, delayMs },
-          `[OpenAI Retry] Transient error on attempt ${attempt}/${MAX_ATTEMPTS}. Retrying in ${delayMs}ms…`
+          { provider: 'openai', status, attempt, maxAttempts: MAX_ATTEMPTS, delayMs },
+          `[OpenAI Retry] Status ${status}. Reintentando en ${delayMs}ms…`
         );
         await delay(delayMs);
         continue;
       }
 
       // Unknown or exhausted retries
-      logger.error({ err: error, attempt }, 'Failed to get completion from OpenAI after retries.');
+      logger.warn({ provider: 'openai', status, message, attempt }, `[OpenAI Error] Status: ${status} - ${message}`);
       throw error;
     }
   }
