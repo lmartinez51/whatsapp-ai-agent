@@ -5,7 +5,9 @@ const {
   isReasoningOrCurrentGenModel,
   sanitizeOpenAIOptions,
   getCompletion,
-  openai
+  openai,
+  isHardOpenAIError,
+  isTransientOpenAIError
 } = require('../src/ai/openaiClient');
 
 test('isReasoningOrCurrentGenModel identifies reasoning and current-generation models', () => {
@@ -103,5 +105,81 @@ test('sanitizeOpenAIOptions normalizes reasoning_effort and preserves reasoning 
   });
   assert.equal(legacyModel.reasoning, undefined);
   assert.equal(legacyModel.reasoning_effort, undefined);
+});
+
+// ============================================================
+// Error classification helpers
+// ============================================================
+
+test('isHardOpenAIError returns true for 401, 400, and 429+insufficient_quota', () => {
+  assert.equal(isHardOpenAIError({ status: 401 }), true, '401 should be hard');
+  assert.equal(isHardOpenAIError({ status: 400 }), true, '400 should be hard');
+  assert.equal(isHardOpenAIError({ status: 429, message: 'You exceeded your current quota: insufficient_quota' }), true, '429+insufficient_quota should be hard');
+  assert.equal(isHardOpenAIError({ status: 429, message: 'Rate limit exceeded' }), false, '429 rate-limit spike should NOT be hard');
+  assert.equal(isHardOpenAIError({ status: 503 }), false, '503 should NOT be hard');
+  assert.equal(isHardOpenAIError(null), false, 'null should return false');
+});
+
+test('isTransientOpenAIError returns true for 500/502/503 and transient 429, false for hard errors', () => {
+  assert.equal(isTransientOpenAIError({ status: 500 }), true, '500 should be transient');
+  assert.equal(isTransientOpenAIError({ status: 502 }), true, '502 should be transient');
+  assert.equal(isTransientOpenAIError({ status: 503 }), true, '503 should be transient');
+  assert.equal(isTransientOpenAIError({ status: 429, message: 'Rate limit exceeded' }), true, 'transient 429 should be retryable');
+  assert.equal(isTransientOpenAIError({ status: 429, message: 'insufficient_quota' }), false, '429+quota should not be transient');
+  assert.equal(isTransientOpenAIError({ status: 401 }), false, '401 should not be transient');
+  assert.equal(isTransientOpenAIError(null), false, 'null should return false');
+});
+
+// ============================================================
+// getCompletion retry behaviour
+// ============================================================
+
+test('getCompletion retries on transient 503 and succeeds on subsequent attempt', async (t) => {
+  const originalResponsesCreate = openai.responses.create;
+  const originalSetTimeout = global.setTimeout;
+
+  t.after(() => {
+    openai.responses.create = originalResponsesCreate;
+    global.setTimeout = originalSetTimeout;
+  });
+
+  // Fast-forward setTimeout so retry delays don't slow the test down
+  global.setTimeout = (fn) => { fn(); return 0; };
+
+  let attempts = 0;
+  openai.responses.create = async () => {
+    attempts++;
+    if (attempts === 1) {
+      const err = new Error('503 Service Unavailable');
+      err.status = 503;
+      throw err;
+    }
+    return { output_text: 'Respuesta recuperada tras reintento' };
+  };
+
+  const result = await getCompletion([{ role: 'user', content: 'Hola' }]);
+  assert.equal(attempts, 2, 'Expected responses.create to be called twice');
+  assert.equal(result, 'Respuesta recuperada tras reintento');
+});
+
+test('getCompletion fails fast on 401 without retrying', async (t) => {
+  const originalResponsesCreate = openai.responses.create;
+  t.after(() => {
+    openai.responses.create = originalResponsesCreate;
+  });
+
+  let attempts = 0;
+  openai.responses.create = async () => {
+    attempts++;
+    const err = new Error('401 Unauthorized');
+    err.status = 401;
+    throw err;
+  };
+
+  await assert.rejects(
+    () => getCompletion([{ role: 'user', content: 'Hola' }]),
+    (err) => err.status === 401
+  );
+  assert.equal(attempts, 1, 'Expected only 1 attempt for a hard 401 error');
 });
 

@@ -71,7 +71,11 @@ async function getGeminiCompletionResult(contents, options = {}) {
     // ==========================================
     // SISTEMA DE SUPERVIVENCIA (Exponential Backoff)
     // ==========================================
-    const RETRY_DELAYS_MS = [2000, 4000, 8000, 30000, 60000];
+    // 3 attempts total (~14 s max wait) — kept short intentionally so that
+    // if Gemini is truly down, the cross-provider failover in responseEngine
+    // can hand off to the secondary LLM quickly instead of blocking for a
+    // full minute before the user gets a response.
+    const RETRY_DELAYS_MS = [2000, 4000, 8000];
     const MAX_RETRIES = RETRY_DELAYS_MS.length;
 
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
