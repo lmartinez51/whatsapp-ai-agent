@@ -23,9 +23,11 @@ chats/
 memory/*.json
 scripts/validation_fixture.json
 
-# Bases de datos locales (si llegas a usar SQLite para guardar contactos)
+# Bases de datos locales (si llegas a usar SQLite para guardar contactos o ChromaDB)
 *.db
 *.sqlite
+*.sqlite3
+scripts/chroma/
 
 # ========================
 # MULTIMEDIA TEMPORAL
